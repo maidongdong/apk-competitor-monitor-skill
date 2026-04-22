@@ -1,0 +1,17 @@
+{
+  "app_name": "Example Android App",
+  "source": {
+    "type": "wandoujia",
+    "app_url": "https://www.wandoujia.com/apps/APP_ID"
+  },
+  "workspace": ".",
+  "state_file": "artifacts/apk-monitor/state.json",
+  "report_root": "reports",
+  "analysis": {
+    "enable_deep_ui_diff": true,
+    "enable_static_ui_previews": true,
+    "max_static_ui_previews": 50,
+    "export_pdf": false,
+    "export_archive": true
+  }
+}

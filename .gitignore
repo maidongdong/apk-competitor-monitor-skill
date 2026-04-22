@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Generated APK monitor data
+artifacts/
+reports/
+web-report/
+state.json
+
+# APKs and generated archives
+*.apk
+*.aab
+*.apks
+*.zip
+*.pdf
+
+# Local scratch
+.cache/
+.tmp/
+.venv/
+venv/

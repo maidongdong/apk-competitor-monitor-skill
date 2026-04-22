@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>竞品版本变化报告 - 今日水印相机</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div>
+          <p class="eyebrow">竞品 App 功能/UI 变更监控</p>
+          <h1 id="reportTitle">今日水印相机</h1>
+        </div>
+        <div class="version-pill" id="versionPill"></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary-band">
+        <div class="summary-copy">
+          <h2>版本变更总览</h2>
+          <p id="summaryText"></p>
+        </div>
+        <div class="metric-grid" id="metricGrid"></div>
+      </section>
+
+      <nav class="tabs" aria-label="报告视图">
+        <button class="tab active" data-target="features">功能变化</button>
+        <button class="tab" data-target="ui">UI 截图</button>
+        <button class="tab" data-target="infra">底层变化</button>
+        <button class="tab" data-target="evidence">证据统计</button>
+      </nav>
+
+      <section id="features" class="panel active">
+        <div class="section-head">
+          <h2>功能变化</h2>
+          <div class="filters" id="featureFilters"></div>
+        </div>
+        <div class="feature-list" id="featureList"></div>
+      </section>
+
+      <section id="ui" class="panel">
+        <div class="section-head">
+          <h2>静态 UI 还原</h2>
+          <p>这里先展示从 APK 反编译/静态解析得到的页面、弹窗、控件 key 和图片素材。它不是运行截图，但能定位新增 UI 的结构和素材证据。</p>
+        </div>
+        <div class="ui-note" id="uiNote"></div>
+        <div class="layout-summary" id="layoutSummary"></div>
+        <div class="section-head preview-head">
+          <h2>静态页面预览</h2>
+          <p id="previewNote"></p>
+        </div>
+        <div class="ui-preview-grid" id="uiPreviewGrid"></div>
+        <details class="technical-details">
+          <summary>技术明细：layout/resource 结构 diff</summary>
+          <p>这部分是给分析人员追溯证据用的底层反编译结果，默认收起，避免和上方静态页面预览重复。</p>
+          <div class="layout-controls">
+            <button class="layout-tab active" data-layout-view="added">新增 layout</button>
+            <button class="layout-tab" data-layout-view="changed">变更 layout</button>
+            <button class="layout-tab" data-layout-view="resources">资源变化</button>
+          </div>
+          <div class="layout-diff-list" id="layoutDiffList"></div>
+        </details>
+        <div class="reconstruct-list" id="reconstructList"></div>
+        <div class="section-head asset-head">
+          <h2>新增/删除图片素材</h2>
+          <p>缩略图来自 APK 中真实图片文件；已结合 apktool 解出的 layout/resource diff 辅助定位素材与页面结构的关系。</p>
+        </div>
+        <div class="asset-tabs">
+          <button class="asset-tab active" data-asset="addedImages">新增图片</button>
+          <button class="asset-tab" data-asset="removedImages">删除图片</button>
+          <button class="asset-tab" data-asset="changedNewImages">变更图片</button>
+        </div>
+        <div class="asset-grid" id="assetGrid"></div>
+      </section>
+
+      <section id="infra" class="panel">
+        <div class="section-head">
+          <h2>底层变化</h2>
+          <p>这里展示 SDK、native 库、监控链路和包体层面的变化，帮助解释功能/UI背后的工程动作。</p>
+        </div>
+        <div class="infra-list" id="infraList"></div>
+      </section>
+
+      <section id="evidence" class="panel">
+        <div class="section-head">
+          <h2>证据统计</h2>
+          <p>所有结论来自 APK 静态分析：DEX 字符串、资源字符串、Manifest、URL/API、埋点和资源文件差异。</p>
+        </div>
+        <div class="evidence-layout">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>指标</th>
+                  <th>数量</th>
+                </tr>
+              </thead>
+              <tbody id="countRows"></tbody>
+            </table>
+          </div>
+          <div class="json-box">
+            <h3>Manifest / 图片变化</h3>
+            <pre id="rawBox"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <template id="featureTemplate">
+      <article class="feature-card">
+        <div class="card-main">
+          <div class="card-title-row">
+            <div>
+              <span class="type-badge"></span>
+              <h3></h3>
+            </div>
+            <span class="confidence"></span>
+          </div>
+          <p class="impact"></p>
+          <ul class="summary-list"></ul>
+          <div class="page-tags"></div>
+          <div class="feature-preview-slot"></div>
+          <details class="feature-evidence-details">
+            <summary>技术证据</summary>
+            <div class="evidence-content"></div>
+          </details>
+        </div>
+      </article>
+    </template>
+
+    <template id="shotTemplate">
+      <article class="shot-card">
+        <div class="shot-head">
+          <div>
+            <span class="type-badge"></span>
+            <h3></h3>
+          </div>
+          <span class="confidence"></span>
+        </div>
+        <div class="comparison">
+          <div class="phone old"><span>旧版截图待采集</span></div>
+          <div class="phone new"><span>新版截图待采集</span></div>
+          <div class="phone diff"><span>差异高亮待生成</span></div>
+        </div>
+        <div class="ui-tags"></div>
+      </article>
+    </template>
+
+    <template id="reconstructTemplate">
+      <article class="reconstruct-card">
+        <div class="reconstruct-main">
+          <div class="shot-head">
+            <div>
+              <span class="type-badge"></span>
+              <h3></h3>
+            </div>
+            <span class="confidence"></span>
+          </div>
+          <div class="static-phone">
+            <div class="phone-bar"></div>
+            <div class="phone-title"></div>
+            <div class="wire-list"></div>
+          </div>
+        </div>
+        <aside class="reconstruct-side">
+          <h4>静态 UI key</h4>
+          <div class="key-list"></div>
+          <h4>关联证据</h4>
+          <div class="mini-evidence"></div>
+        </aside>
+      </article>
+    </template>
+
+    <template id="layoutDiffTemplate">
+      <article class="layout-card">
+        <div class="layout-card-head">
+          <div>
+            <span class="type-badge"></span>
+            <h3></h3>
+          </div>
+          <span class="layout-count"></span>
+        </div>
+        <div class="layout-tree"></div>
+      </article>
+    </template>
+
+    <template id="uiPreviewTemplate">
+      <article class="ui-preview-card">
+        <div class="preview-frame">
+          <img alt="" />
+        </div>
+        <div class="preview-meta">
+          <span class="type-badge"></span>
+          <h3></h3>
+          <p></p>
+          <div class="preview-classes"></div>
+        </div>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
