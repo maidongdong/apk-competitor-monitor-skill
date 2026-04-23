@@ -19,11 +19,161 @@ const labels = {
   infraChanges: "底层变化",
 };
 
+const evidenceTypes = [
+  ["UI", /(layout|fragment|activity|dialog|view|btn|tv|iv|cl_|rl_|ll_|fl_|bg_|ic_|drawable|mipmap)/i],
+  ["接口", /(^\/|https?:\/\/|api|user\/|group\/|photo\/|label\/|vip|sync|upload)/i],
+  ["文案", /[\u4e00-\u9fa5]{2,}/],
+  ["类名", /(com\.|\/xhey\/|Activity|Fragment|Dialog|ViewModel|DataBinder|Binding)/],
+  ["埋点", /(android_|event|track|click|enter|exit|success|fail|show|exposure)/i],
+];
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function unique(items) {
+  return Array.from(new Set((items || []).filter(Boolean)));
+}
+
+function toNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function evidenceProfile(feature) {
+  const items = unique([...(feature.evidence || []), ...(feature.ui || []), ...(feature.pages || [])]);
+  const counts = {};
+  evidenceTypes.forEach(([label, pattern]) => {
+    counts[label] = items.filter((item) => pattern.test(String(item))).length;
+  });
+  const matched = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  counts["其他"] = Math.max(items.length - matched, 0);
+  return { items, counts };
+}
+
+function featurePriority(feature) {
+  const text = searchableText([feature.title, feature.type, feature.impact, feature.summary, feature.pages, feature.evidence, feature.ui]);
+  const highWords = ["新增功能", "会员", "vip", "支付", "微信", "验证", "安全", "定位", "团队", "台账", "入口", "权限"];
+  const mediumWords = ["ui", "改版", "弹窗", "状态", "提示", "筛选", "编辑", "埋点", "接口"];
+  const confidence = String(feature.confidence || "");
+  let score = 0;
+  if (confidence.includes("高")) score += 2;
+  if (highWords.some((word) => text.includes(word))) score += 3;
+  if (mediumWords.some((word) => text.includes(word))) score += 1;
+  const evidenceCount = evidenceProfile(feature).items.length;
+  if (evidenceCount >= 12) score += 2;
+  if (evidenceCount >= 6) score += 1;
+  if (score >= 6) return { level: "高", score, label: "重点关注" };
+  if (score >= 3) return { level: "中", score, label: "建议跟进" };
+  return { level: "低", score, label: "持续观察" };
+}
+
+function featureModule(feature) {
+  const text = searchableText([feature.id, feature.title, feature.type, feature.impact, feature.pages, feature.evidence, feature.ui]);
+  const modules = [
+    ["账号安全", ["微信", "wechat", "verify", "vericode", "bind", "手机号", "账号"]],
+    ["团队协作", ["团队", "workgroup", "work_group", "photo_label", "台账", "标签"]],
+    ["拍照/编辑", ["拍照", "camera", "puzzle", "拼图", "编辑", "insert"]],
+    ["会员商业化", ["会员", "vip", "member", "权益", "expire"]],
+    ["定位/风控", ["定位", "location", "poi", "gps", "lock", "位置"]],
+    ["安全/隐私", ["安全", "safe", "safemode", "隐私", "权限"]],
+    ["上传同步", ["上传", "同步", "upload", "sync", "cloud"]],
+  ];
+  const match = modules.find(([, words]) => words.some((word) => text.includes(word)));
+  return match ? match[0] : "其他模块";
+}
+
+function suggestedAction(feature) {
+  const module = featureModule(feature);
+  const type = String(feature.type || "");
+  if (module === "账号安全") return "建议用新账号、已绑定微信账号、手机号变更场景分别验证入口和异常弹窗。";
+  if (module === "团队协作") return "建议加入团队后验证入口、筛选、导出和多人协作状态，判断是否面向企业用户增强。";
+  if (module === "会员商业化") return "建议用未开通、即将过期、已过期会员态验证展示和转化入口。";
+  if (module === "定位/风控") return "建议切换定位权限、虚拟定位和不同 POI 场景，确认是否是风控或会员权益变化。";
+  if (module === "安全/隐私") return "建议在异常启动、权限受限、拍照失败场景下验证是否触发安全模式。";
+  if (type.includes("UI")) return "建议让产品和设计同学对照旧/新版静态图，重点看入口、状态和弹窗文案是否变化。";
+  return "建议安装新版做一次主路径走查，并在下个版本继续观察该模块是否持续迭代。";
+}
+
+function candidateNameFromLayout(layoutName, category) {
+  const base = normalizeKey(layoutName)
+    .replace(/^(activity|fragment|dialog|layout|item|view|widget)_/, "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+  const suffix = /dialog|bottom_sheet/i.test(layoutName) ? "DialogCandidate" : /fragment/i.test(layoutName) ? "FragmentCandidate" : /activity/i.test(layoutName) ? "ActivityCandidate" : "UiCandidate";
+  if (base) return `${base}${suffix}`;
+  return `${String(category || "Unknown").replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, "")}${suffix}`;
+}
+
+function isObfuscatedClass(name) {
+  const value = String(name || "");
+  const tail = value.split(".").pop() || "";
+  return (
+    value.includes("defpackage") ||
+    /^[a-z]{1,3}\d*$/i.test(tail) ||
+    /\$[a-z]\d*$/i.test(value) ||
+    /^sources\.[^.]+\.[^.]+\.[a-z]$/i.test(value)
+  );
+}
+
+function obfuscationModel() {
+  const layouts = [
+    ...(state.layoutUi?.layouts?.added || []),
+    ...(state.layoutUi?.layouts?.changed || []),
+    ...(state.layoutUi?.layouts?.removed || []),
+  ];
+  const classLinks = [];
+  layouts.forEach((layout) => {
+    (layout.classes || []).forEach((className) => {
+      classLinks.push({
+        className,
+        layout: layout.name,
+        category: layout.category,
+        views: layout.views || [],
+        change: layout.change,
+        alias: candidateNameFromLayout(layout.name, layout.category),
+      });
+    });
+  });
+  const uniqueClasses = unique(classLinks.map((item) => item.className));
+  const obfuscatedClasses = unique(uniqueClasses.filter(isObfuscatedClass));
+  const obfuscatedLinks = classLinks.filter((item) => isObfuscatedClass(item.className));
+  const meaningfulLayouts = layouts.filter((layout) => !String(layout.category || "").includes("其他")).length;
+  const resourceNamedLayouts = layouts.filter((layout) => /safe|wechat|verify|photo|label|vip|member|location|work|group|puzzle|upload|sync/i.test(layout.name)).length;
+  const ratio = uniqueClasses.length ? obfuscatedClasses.length / uniqueClasses.length : 0;
+  const impact = ratio >= 0.6 ? "高" : ratio >= 0.25 ? "中" : "低";
+  const aliasMap = new Map();
+  obfuscatedLinks.forEach((item) => {
+    const key = item.className;
+    const existing = aliasMap.get(key);
+    if (!existing || String(existing.layout).includes("其他")) aliasMap.set(key, item);
+  });
+  return {
+    uniqueClassCount: uniqueClasses.length,
+    obfuscatedClassCount: obfuscatedClasses.length,
+    ratio,
+    impact,
+    meaningfulLayouts,
+    resourceNamedLayouts,
+    aliases: Array.from(aliasMap.values()).slice(0, 20),
+  };
+}
+
+function confidenceReason(feature) {
+  const profile = evidenceProfile(feature);
+  const active = Object.entries(profile.counts).filter(([, count]) => count > 0);
+  if (!active.length) return "置信度说明：当前只有少量弱信号，需要人工验证。";
+  const bits = active
+    .filter(([label]) => label !== "其他")
+    .map(([label, count]) => `${label} ${count}`)
+    .slice(0, 5)
+    .join("、");
+  const prefix = String(feature.confidence || "").includes("高") ? "多类证据相互印证" : "已有静态证据但仍需运行时确认";
+  return `置信度说明：${prefix}，命中 ${bits || `其他线索 ${profile.items.length}`}。`;
 }
 
 function addTags(container, items) {
@@ -38,8 +188,13 @@ function renderHeader(data) {
     ${data.oldDate} → ${data.newDate}<br>
     包名：${data.package}
   `;
+  const top = topFeatures(data).slice(0, 3).map((item) => item.title).join("、");
   document.getElementById("summaryText").textContent =
-    `本报告聚合 APK 静态差异，重点识别功能和 UI 增删改。新版包体从 ${data.summary.apkOldSize} 降至 ${data.summary.apkNewSize}，同时出现安全模式、团队照片标签、微信绑定、会员状态和工作组入口等产品线索。`;
+    `本报告聚合 APK 静态差异，优先帮助 PM 识别本次值得关注的产品变化。新版包体从 ${data.summary.apkOldSize} 变为 ${data.summary.apkNewSize}，重点线索包括：${top || "暂无明确高优先级产品线索"}。`;
+}
+
+function topFeatures(data) {
+  return [...(data.features || [])].sort((a, b) => featurePriority(b).score - featurePriority(a).score);
 }
 
 function renderMetrics(data) {
@@ -60,6 +215,53 @@ function renderMetrics(data) {
     card.appendChild(el("strong", "", String(value)));
     card.appendChild(el("span", "", labels[key]));
     grid.appendChild(card);
+  });
+}
+
+function renderPmInsights(data) {
+  const features = topFeatures(data);
+  const hero = document.getElementById("insightHero");
+  const grid = document.getElementById("insightGrid");
+  const validation = document.getElementById("validationList");
+  const high = features.filter((feature) => featurePriority(feature).level === "高");
+  const modules = new Set(features.map(featureModule));
+  hero.innerHTML = "";
+  const heroItems = [
+    ["重点变化", high.length || features.length, "优先查看高影响功能、商业化、账号安全和团队协作变化"],
+    ["涉及模块", modules.size, Array.from(modules).slice(0, 5).join(" / ") || "暂无明确模块"],
+    ["静态 UI 图", state.uiPreviews?.previews?.length || 0, state.uiPreviews?.previews?.length ? "已生成页面级静态还原，可辅助理解结构变化" : "未生成深度 UI 预览"],
+  ];
+  heroItems.forEach(([title, value, desc]) => {
+    const card = el("article", "insight-hero-card");
+    card.appendChild(el("span", "", title));
+    card.appendChild(el("strong", "", String(value)));
+    card.appendChild(el("p", "", desc));
+    hero.appendChild(card);
+  });
+
+  grid.innerHTML = "";
+  features.slice(0, 6).forEach((feature, index) => {
+    const priority = featurePriority(feature);
+    const card = el("article", "insight-card");
+    const head = el("div", "insight-card-head");
+    head.appendChild(el("span", `priority priority-${priority.level}`, `${priority.label} · ${priority.level}`));
+    head.appendChild(el("span", "module-chip", featureModule(feature)));
+    card.appendChild(head);
+    card.appendChild(el("h3", "", `${index + 1}. ${feature.title}`));
+    card.appendChild(el("p", "", feature.impact || (feature.summary || [])[0] || "需要结合证据继续判断产品影响。"));
+    const bullets = el("ul", "insight-bullets");
+    (feature.summary || []).slice(0, 3).forEach((line) => bullets.appendChild(el("li", "", line)));
+    card.appendChild(bullets);
+    card.appendChild(el("p", "insight-action", suggestedAction(feature)));
+    grid.appendChild(card);
+  });
+
+  validation.innerHTML = "";
+  features.slice(0, 8).forEach((feature, index) => {
+    const item = el("article", "validation-item");
+    item.appendChild(el("strong", "", `${index + 1}. ${feature.title}`));
+    item.appendChild(el("p", "", suggestedAction(feature)));
+    validation.appendChild(item);
   });
 }
 
@@ -230,9 +432,24 @@ function renderFeatures(data) {
       node.querySelector("h3").textContent = feature.title;
       node.querySelector(".confidence").textContent = `置信度 ${feature.confidence}`;
       node.querySelector(".impact").textContent = feature.impact;
+      const priority = featurePriority(feature);
+      const meta = node.querySelector(".feature-meta-row");
+      meta.innerHTML = "";
+      [
+        `${priority.label} · ${priority.level}`,
+        featureModule(feature),
+        feature.type,
+      ].forEach((item) => meta.appendChild(el("span", "module-chip", item)));
       const summary = node.querySelector(".summary-list");
       feature.summary.forEach((line) => summary.appendChild(el("li", "", line)));
       addTags(node.querySelector(".page-tags"), feature.pages);
+      const badges = node.querySelector(".evidence-badges");
+      badges.innerHTML = "";
+      Object.entries(evidenceProfile(feature).counts)
+        .filter(([, count]) => count > 0)
+        .forEach(([label, count]) => badges.appendChild(el("span", "evidence-badge", `${label} ${count}`)));
+      node.querySelector(".confidence-reason").textContent = confidenceReason(feature);
+      node.querySelector(".suggested-action").textContent = suggestedAction(feature);
       let previewSlot = node.querySelector(".feature-preview-slot");
       if (!previewSlot) {
         previewSlot = el("div", "feature-preview-slot");
@@ -512,6 +729,130 @@ function renderEvidence(data) {
   );
 }
 
+function layoutCategoryCounts() {
+  return state.layoutUi?.summary?.categories || {};
+}
+
+function collectUnexplainedLayouts() {
+  const layouts = [
+    ...(state.layoutUi?.layouts?.added || []),
+    ...(state.layoutUi?.layouts?.changed || []),
+  ];
+  return layouts
+    .filter((layout) => String(layout.category || "").includes("其他"))
+    .slice(0, 16)
+    .map((layout) => `${layout.change === "changed" ? "变更" : "新增"} ${layout.name} · ${layout.root || "layout"} · ${layout.viewCount || layout.counts?.changedViews || 0} views`);
+}
+
+function unexplainedLayoutCount() {
+  const categoryCounts = layoutCategoryCounts();
+  return Object.entries(categoryCounts)
+    .filter(([name]) => String(name).includes("其他"))
+    .reduce((sum, [, value]) => sum + toNumber(value), 0);
+}
+
+function coverageModel(data) {
+  const counts = data.raw?.counts || {};
+  const summary = data.summary || {};
+  const signalTotal = Object.values(counts).reduce((sum, value) => sum + toNumber(value), 0);
+  const featureEvidence = new Set();
+  (data.features || []).forEach((feature) => evidenceProfile(feature).items.forEach((item) => featureEvidence.add(item)));
+  const layoutSummary = state.layoutUi?.summary || {};
+  const layoutTotal = toNumber(layoutSummary.layoutsAdded) + toNumber(layoutSummary.layoutsChanged) + toNumber(layoutSummary.layoutsRemoved);
+  const categoryCounts = layoutCategoryCounts();
+  const explainedLayouts = Object.entries(categoryCounts)
+    .filter(([name]) => !String(name).includes("其他"))
+    .reduce((sum, [, value]) => sum + toNumber(value), 0);
+  const previewCount = state.uiPreviews?.previews?.length || 0;
+  const staticDepth = [
+    state.layoutUi ? "apktool layout/resource diff 已生成" : "缺少 apktool layout/resource diff",
+    previewCount ? `静态 UI 预览 ${previewCount} 张` : "缺少静态 UI 预览",
+    state.layoutUi?.summary?.mappingNewStatus === "ok" ? "JADX 页面映射可用" : "JADX 页面映射缺失或失败",
+  ];
+  return {
+    signalTotal,
+    featureEvidenceCount: featureEvidence.size,
+    layoutTotal,
+    explainedLayouts,
+    unexplainedLayouts: unexplainedLayoutCount(),
+    previewCount,
+    productConclusionCount: data.features?.length || 0,
+    staticDepth,
+    summary,
+  };
+}
+
+function renderCoverage(data) {
+  const model = coverageModel(data);
+  const obfuscation = obfuscationModel();
+  const grid = document.getElementById("coverageGrid");
+  grid.innerHTML = "";
+  [
+    ["产品结论", model.productConclusionCount, "已归纳为 PM 可读功能变化的结论数"],
+    ["证据链线索", model.featureEvidenceCount, "进入功能卡片的 UI/接口/类名/文案/埋点证据"],
+    ["页面级变化", `${model.explainedLayouts}/${model.layoutTotal}`, "已归类产品模块的新增/变更/删除 layout"],
+    ["疑似产品未归类", model.unexplainedLayouts, "页面级变化中仍属于“其他 UI”的 layout 数量"],
+    ["混淆影响", obfuscation.impact, `${obfuscation.obfuscatedClassCount}/${obfuscation.uniqueClassCount} 个关联类疑似混淆`],
+    ["原始信号总量", model.signalTotal, "包含 DEX 字符串、删除项、混淆符号和 SDK 噪声，不等同于产品遗漏"],
+    ["静态 UI 图", model.previewCount, "基于 apktool layout XML 生成的第二层静态还原图"],
+    ["图片素材", `${model.summary.imagesAdded || 0}+ / ${model.summary.imagesRemoved || 0}-`, "APK 中新增和删除的真实图片资源"],
+  ].forEach(([label, value, desc]) => {
+    const card = el("article", "coverage-metric");
+    card.appendChild(el("strong", "", String(value)));
+    card.appendChild(el("span", "", label));
+    card.appendChild(el("p", "", desc));
+    grid.appendChild(card);
+  });
+
+  const unexplained = document.getElementById("unexplainedList");
+  unexplained.innerHTML = "";
+  const layoutItems = collectUnexplainedLayouts();
+  const rawItems = [
+    `口径说明：这里优先展示未归入产品模块的页面级 UI；原始字符串总量不直接代表产品遗漏。`,
+    `新增资源字符串 ${model.summary.resourceStringsAdded || 0} 条：已用于功能结论和 UI 证据，剩余需结合语义抽样。`,
+    `新增 API/类线索 ${model.summary.apisAdded || 0} 条：包含产品接口、SDK、混淆类和底层实现，需要二次分类。`,
+    `新增埋点/UI key ${model.summary.eventsAdded || 0} 条：适合继续挖疑似预埋/灰度功能。`,
+  ];
+  [...layoutItems, ...rawItems].slice(0, 20).forEach((item) => unexplained.appendChild(el("code", "", item)));
+
+  const obfuscationSummary = document.getElementById("obfuscationSummary");
+  obfuscationSummary.innerHTML = "";
+  [
+    ["影响等级", obfuscation.impact],
+    ["疑似混淆类", `${obfuscation.obfuscatedClassCount}/${obfuscation.uniqueClassCount}`],
+    ["业务命名 layout", obfuscation.resourceNamedLayouts],
+  ].forEach(([label, value]) => {
+    const chip = el("span", "module-chip", `${label}：${value}`);
+    obfuscationSummary.appendChild(chip);
+  });
+  const obfuscationList = document.getElementById("obfuscationList");
+  obfuscationList.innerHTML = "";
+  if (!obfuscation.aliases.length) {
+    obfuscationList.appendChild(el("code", "", "未发现明显混淆类关联到新增/变更 layout。"));
+  } else {
+    obfuscation.aliases.forEach((item) => {
+      obfuscationList.appendChild(
+        el(
+          "code",
+          "",
+          `${item.className}\n-> ${item.alias}\n证据：${item.layout} · ${item.category}`,
+        ),
+      );
+    });
+  }
+
+  const blindspots = document.getElementById("blindspotList");
+  blindspots.innerHTML = "";
+  [
+    "服务端开关/灰度配置：APK 里可能只有 key，是否展示给用户需要运行时验证。",
+    "WebView/H5/动态下发页面：页面内容可能不在 native layout 中。",
+    "加密或压缩字符串：普通 DEX 字符串扫描可能无法还原。",
+    "Compose/Flutter/RN UI：不一定存在 XML layout，静态还原覆盖有限。",
+    "账号态/会员态/团队态/异常态：需要真实账号和操作路径才能确认。",
+    ...model.staticDepth,
+  ].forEach((item) => blindspots.appendChild(el("code", "", item)));
+}
+
 function bindTabs() {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -546,9 +887,11 @@ async function main() {
   state.data = data;
   renderHeader(data);
   renderMetrics(data);
+  renderPmInsights(data);
   renderFilters(data);
   renderFeatures(data);
   renderShots(data);
+  renderCoverage(data);
   renderInfra(data);
   renderEvidence(data);
 }

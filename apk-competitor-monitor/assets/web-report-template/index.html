@@ -27,13 +27,29 @@
       </section>
 
       <nav class="tabs" aria-label="报告视图">
-        <button class="tab active" data-target="features">功能变化</button>
+        <button class="tab active" data-target="insights">PM 洞察</button>
+        <button class="tab" data-target="features">功能变化</button>
         <button class="tab" data-target="ui">UI 截图</button>
+        <button class="tab" data-target="coverage">覆盖率</button>
         <button class="tab" data-target="infra">底层变化</button>
         <button class="tab" data-target="evidence">证据统计</button>
       </nav>
 
-      <section id="features" class="panel active">
+      <section id="insights" class="panel active">
+        <div class="section-head">
+          <h2>PM 变化洞察</h2>
+          <p>先把 APK 静态差异翻译成产品经理可判断的变化、优先级和验证动作；技术证据保留在功能卡片和覆盖率页中。</p>
+        </div>
+        <div class="insight-hero" id="insightHero"></div>
+        <div class="insight-grid" id="insightGrid"></div>
+        <div class="section-head">
+          <h2>建议人工验证</h2>
+          <p>这些任务用于确认静态线索是否真实面向用户上线，尤其适合灰度、账号态、团队态和会员态功能。</p>
+        </div>
+        <div class="validation-list" id="validationList"></div>
+      </section>
+
+      <section id="features" class="panel">
         <div class="section-head">
           <h2>功能变化</h2>
           <div class="filters" id="featureFilters"></div>
@@ -74,6 +90,32 @@
           <button class="asset-tab" data-asset="changedNewImages">变更图片</button>
         </div>
         <div class="asset-grid" id="assetGrid"></div>
+      </section>
+
+      <section id="coverage" class="panel">
+        <div class="section-head">
+          <h2>反编译覆盖率</h2>
+          <p>这页回答“静态反编译是否已经把产品内容挖干净”：展示已解释产品线索、深度 UI 覆盖、未解释变化池和动态验证缺口。</p>
+        </div>
+        <div class="coverage-grid" id="coverageGrid"></div>
+        <div class="coverage-columns">
+          <article class="coverage-card">
+            <h3>未解释变化池</h3>
+            <p>这些变化暂未归入明确产品结论，建议后续人工抽样或增强规则。</p>
+            <div class="unexplained-list" id="unexplainedList"></div>
+          </article>
+          <article class="coverage-card">
+            <h3>混淆影响评估</h3>
+            <p>识别混淆类对产品语义恢复的影响，并用 layout、文案、控件 id 生成候选别名。</p>
+            <div class="obfuscation-summary" id="obfuscationSummary"></div>
+            <div class="unexplained-list" id="obfuscationList"></div>
+          </article>
+          <article class="coverage-card">
+            <h3>静态分析盲区</h3>
+            <p>这些内容通常不能仅靠 APK 资源反编译确认，需要运行时抓包、真机截图或账号态验证。</p>
+            <div class="blindspot-list" id="blindspotList"></div>
+          </article>
+        </div>
       </section>
 
       <section id="infra" class="panel">
@@ -120,8 +162,12 @@
             <span class="confidence"></span>
           </div>
           <p class="impact"></p>
+          <div class="feature-meta-row"></div>
           <ul class="summary-list"></ul>
           <div class="page-tags"></div>
+          <div class="evidence-badges"></div>
+          <p class="confidence-reason"></p>
+          <p class="suggested-action"></p>
           <div class="feature-preview-slot"></div>
           <details class="feature-evidence-details">
             <summary>技术证据</summary>

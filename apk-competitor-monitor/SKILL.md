@@ -47,7 +47,10 @@ Use this skill when the user wants to monitor an Android competitor app, compare
    - Write `report-data.json` and `static-ui-data.json`.
    - If deep UI data exists, also write `ui-layout-data.json`, `ui-preview-data.json`, and `static-ui-previews/*.svg`.
    - Preview cards should show change kind, old/new side-by-side static previews when available, inferred states, RecyclerView item hints, associated Activity/Fragment/Dialog classes, and the underlying evidence.
-   - The report should include overview, feature changes, page-level layout diff, static UI reconstruction, SDK/native changes, and raw evidence counts.
+   - The report should include a PM insight page, feature changes, page-level layout diff, static UI reconstruction, decompilation coverage, SDK/native changes, and raw evidence counts.
+   - The PM insight page should lead with prioritized product conclusions, affected modules, suggested manual validation tasks, and evidence badges rather than raw reverse-engineering names.
+   - The coverage page should make static-analysis limits explicit: explained product conclusions, page-level UI coverage, unexplained layout/resource signals, and blind spots such as gray rollout, server config, WebView/H5, encrypted strings, and runtime account states.
+   - Include obfuscation impact assessment when JADX/layout mappings exist: count suspicious short/defpackage class names, explain impact level, and generate candidate semantic aliases from linked layout names, UI text, resource ids, and product category.
 
 8. Export a PDF archive.
    - After the Web report is generated, run `scripts/export_report_pdf.py REPORT_DIR --out REPORT_DIR/report.pdf`.
@@ -67,6 +70,7 @@ Use this skill when the user wants to monitor an Android competitor app, compare
 ## Reporting Rules
 
 - Lead with user-facing product conclusions, not raw reverse-engineering details.
+- Help product managers answer four questions first: what changed, how important it is, what evidence supports it, and what should be manually verified next.
 - Every feature/UI conclusion needs an evidence chain: API/class path, resource key, event key, Manifest component, image asset, or URL.
 - Mark confidence:
   - High: multiple independent signals agree, such as Activity + UI key + API + event.
@@ -74,6 +78,8 @@ Use this skill when the user wants to monitor an Android competitor app, compare
   - Low: isolated string/resource signal.
 - Separate static findings from runtime-confirmed screenshots.
 - Do not claim a UI is visible to users unless runtime capture confirms it.
+- Keep an unexplained-change pool. Do not imply the APK has been fully mined when signals remain unclassified or require runtime validation.
+- Treat obfuscated class names as weak evidence. Prefer semantic aliases such as `VerifyCodeErrorDialogCandidate` only when backed by layout/string/API/resource evidence, and label them as inferred candidates rather than original names.
 
 ## Useful Commands
 
