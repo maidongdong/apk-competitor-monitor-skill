@@ -946,6 +946,18 @@ RESOURCES = [
         "description": "Reusable project configuration example for running the weekly pipeline with a Wandoujia APK source and project-specific Web/publish/notify settings.",
         "mimeType": "application/json",
     },
+    {
+        "uri": "file://apk-competitor-monitor/examples/web-monitor.config.example.json",
+        "name": "Web Monitor Config Example",
+        "description": "Example artifacts/web-monitor/config.json for onboarding a new competitor Web/admin target.",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "file://docs/web-monitor-onboarding.md",
+        "name": "Web Monitor Onboarding Guide",
+        "description": "Guide for configuring new competitor Web/admin monitoring routes, baselines, and redaction rules.",
+        "mimeType": "text/markdown",
+    },
 ]
 
 
@@ -956,6 +968,10 @@ def read_resource(uri):
         path = SKILL_DIR / "SKILL.md"
     elif uri == "file://apk-competitor-monitor/examples/config.example.json":
         path = SKILL_DIR / "examples" / "config.example.json"
+    elif uri == "file://apk-competitor-monitor/examples/web-monitor.config.example.json":
+        path = SKILL_DIR / "examples" / "web-monitor.config.example.json"
+    elif uri == "file://docs/web-monitor-onboarding.md":
+        path = WORKSPACE / "docs" / "web-monitor-onboarding.md"
     else:
         raise KeyError(f"Unknown resource: {uri}")
     return {

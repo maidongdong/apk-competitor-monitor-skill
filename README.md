@@ -249,6 +249,21 @@ Use [apk-competitor-monitor/examples/config.example.json](/Users/dong/Documents/
 
 When `run_full_weekly_pipeline` receives both direct arguments and `project_config`, direct arguments win.
 
+## Onboarding A New Web/Admin Competitor
+
+For a new Web/admin target, start from:
+
+- [apk-competitor-monitor/examples/web-monitor.config.example.json](/Users/dong/Documents/Cursor/竞品分析工具/apk-competitor-monitor-skill/apk-competitor-monitor/examples/web-monitor.config.example.json)
+- [docs/web-monitor-onboarding.md](/Users/dong/Documents/Cursor/竞品分析工具/apk-competitor-monitor-skill/docs/web-monitor-onboarding.md)
+
+Those files explain:
+
+- how to define `targets` and `routes`
+- how to write stable `baselineSpec` entries
+- how to reduce noise with `ignoreTextPatterns`
+- how to apply `privacyRedaction`
+- how to choose routes that are PM-meaningful instead of operationally noisy
+
 ## Output
 
 Typical output includes:

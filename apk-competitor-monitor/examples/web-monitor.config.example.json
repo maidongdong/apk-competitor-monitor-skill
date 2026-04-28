@@ -1,0 +1,109 @@
+{
+  "targets": [
+    {
+      "id": "example-admin",
+      "name": "Example Competitor Admin",
+      "baseUrl": "https://admin.example.com/",
+      "authProfile": "admin",
+      "storageState": "artifacts/web-monitor/auth/admin.storageState.json",
+      "routes": [
+        {
+          "id": "dashboard",
+          "name": "数据看板",
+          "url": "https://admin.example.com/dashboard",
+          "priority": "high",
+          "capture": [
+            "screenshot",
+            "dom",
+            "network",
+            "filters",
+            "charts"
+          ],
+          "baselineSpec": {
+            "pageTitle": "数据看板",
+            "stableControls": [
+              "自定义看板",
+              "导出"
+            ],
+            "sections": [
+              "订单统计",
+              "成员统计"
+            ],
+            "filters": [
+              "开始日期",
+              "结束日期",
+              "筛选成员"
+            ],
+            "metrics": [
+              "订单数",
+              "活跃成员"
+            ],
+            "highValueSignals": [
+              "自定义看板",
+              "订单统计"
+            ],
+            "ignoreTextPatterns": [
+              "\\d{4}-\\d{2}-\\d{2}",
+              "\\d+\\s*(人|单|张)"
+            ]
+          }
+        },
+        {
+          "id": "asset-list",
+          "name": "资源列表",
+          "url": "https://admin.example.com/assets/list",
+          "priority": "high",
+          "capture": [
+            "screenshot",
+            "dom",
+            "network",
+            "table-schema",
+            "actions"
+          ],
+          "baselineSpec": {
+            "pageTitle": "资源列表",
+            "stableControls": [
+              "搜索",
+              "重置",
+              "导出"
+            ],
+            "filters": [
+              "状态",
+              "创建时间",
+              "负责人"
+            ],
+            "tableColumns": [
+              "名称",
+              "状态",
+              "负责人",
+              "更新时间",
+              "操作"
+            ],
+            "rowActions": [
+              "查看",
+              "编辑"
+            ],
+            "highValueSignals": [
+              "导出",
+              "批量操作"
+            ],
+            "ignoreTextPatterns": [
+              "\\d{4}-\\d{2}-\\d{2}",
+              "\\d{2}:\\d{2}"
+            ],
+            "privacyRedaction": {
+              "redactNames": true
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "maskDynamicTextHints": [
+      "更新时间",
+      "最近登录",
+      "系统时间"
+    ]
+  }
+}
