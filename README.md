@@ -2,6 +2,8 @@
 
 A Codex skill for monitoring Android competitor apps from APK sources, comparing versions, and generating product/UI change reports.
 
+This repository now also includes a Codex plugin manifest and a lightweight stdio MCP server so the same workflow can be consumed in more agent environments than a standalone `SKILL.md`.
+
 This project is source-available for non-commercial use under the PolyForm Noncommercial License 1.0.0. It is not open source under the OSI definition and may not be used for commercial purposes without separate permission.
 
 ## What It Does
@@ -14,7 +16,7 @@ This project is source-available for non-commercial use under the PolyForm Nonco
 - Generates a local Web report and lightweight searchable archive.
 - Optionally exports PDF when a local Chrome/Playwright engine is available.
 
-## Install In Codex
+## Install As A Skill In Codex
 
 Ask Codex to install this skill from GitHub:
 
@@ -24,6 +26,44 @@ https://github.com/maidongdong/apk-competitor-monitor-skill/tree/main/apk-compet
 ```
 
 After installation, restart Codex so the new skill is picked up.
+
+## Install As A Plugin / MCP Bundle
+
+This repository now exposes:
+
+- plugin manifest: [`.codex-plugin/plugin.json`](./.codex-plugin/plugin.json)
+- MCP config: [`.mcp.json`](./.mcp.json)
+- stdio MCP server: [`mcp_server.py`](./mcp_server.py)
+
+The plugin keeps the existing skill workflow and adds MCP tools for the most reusable actions:
+
+- `get_skill_overview`
+- `monitor_wandoujia`
+- `analyze_apk_diff`
+- `deep_ui_analysis`
+- `product_ui_analysis`
+- `build_deep_ui_web_data`
+- `render_static_ui_previews`
+- `generate_apk_report_bundle`
+- `export_simple_archive`
+- `export_report_pdf`
+- `web_probe_admin`
+- `web_generate_report`
+- `web_run_weekly`
+- `weekly_generate_unified_report`
+- `publish_build_site`
+- `publish_deploy_site`
+- `notify_wecom_weekly_report`
+
+To use it as a local Codex plugin, point your plugin installer at this repository root so Codex can read `.codex-plugin/plugin.json`.
+
+To use it as a generic MCP server, run:
+
+```bash
+python3 mcp_server.py
+```
+
+and connect over stdio using the MCP config in [`.mcp.json`](./.mcp.json).
 
 ## Requirements
 
@@ -58,6 +98,157 @@ Use the apk-competitor-monitor skill to compare old.apk and new.apk.
 Focus on feature changes, UI changes, and static UI reconstruction.
 ```
 
+For MCP tool clients, the minimum useful inputs are:
+
+- `monitor_wandoujia`
+  - `app_url`
+  - optional `state`
+  - optional `out_root`
+- `analyze_apk_diff`
+  - `old_label`
+  - `old_apk`
+  - `new_label`
+  - `new_apk`
+- `deep_ui_analysis`
+  - `old_label`
+  - `old_apk`
+  - `new_label`
+  - `new_apk`
+  - optional `output`, `out_root`, `force`, `skip_jadx`
+- `product_ui_analysis`
+  - `old_label`
+  - `old_apk`
+  - `new_label`
+  - `new_apk`
+  - optional `output`
+- `build_deep_ui_web_data`
+  - `ui_layout_diff`
+  - optional `out`
+- `render_static_ui_previews`
+  - `apktool_dir`
+  - `layout_data`
+  - `out_dir`
+  - `out_json`
+  - optional `old_apktool_dir`, `ui_layout_diff`, `limit`
+- `generate_apk_report_bundle`
+  - `diff`
+  - `product`
+  - `layout`
+  - `preview`
+  - `old_apk`
+  - `new_apk`
+  - `report_dir`
+  - `old_version`
+  - `new_version`
+  - optional `app_name`, `package`, `old_date`, `new_date`, `template_dir`
+- `export_simple_archive`
+  - `report_dir`
+  - optional `zip_name`
+- `export_report_pdf`
+  - `report_dir`
+  - optional `out`, `port`
+
+For workspace orchestration tools, provide a monitoring project root that contains:
+
+- `artifacts/web-monitor/scripts/*.mjs`
+- `artifacts/web-monitor/config.json`
+- `reports/`
+- optional `publish/` and WeCom secret files
+
+The workspace-oriented tools are:
+
+- `web_probe_admin`
+  - `workspace_root`
+  - optional `route_ids`, `playwright_channel`, `network_idle_timeout_ms`, `settle_ms`
+- `web_generate_report`
+  - `workspace_root`
+  - optional `web_probe_summary`, `web_baseline`, `web_report_dir`, `web_update_baseline`
+- `web_run_weekly`
+  - `workspace_root`
+  - optional probe/report overrides above
+- `weekly_generate_unified_report`
+  - `workspace_root`
+  - optional `apk_report_dir`, `web_report_dir`, `weekly_report_dir`
+- `publish_build_site`
+  - `workspace_root`
+  - optional `weekly_report_dir`, `publish_dir`
+- `publish_deploy_site`
+  - `workspace_root`
+  - optional `publish_dir`, `publish_url`
+- `notify_wecom_weekly_report`
+  - `workspace_root`
+  - optional `weekly_report_dir`, `publish_url`, `wecom_webhook_url`, `dry_run`
+
+## One-Click Weekly Orchestration
+
+The MCP server also exposes:
+
+- `run_full_weekly_pipeline`
+
+Minimum inputs:
+
+- `workspace_root`
+- `app_url`
+
+Or:
+
+- `workspace_root`
+- `project_config`
+
+This orchestration tool performs:
+
+1. APK version check against the workspace state file
+2. APK diff/report generation when a new version exists
+3. Web/admin probe + report
+4. Unified weekly report generation
+5. Static publish deploy
+6. WeCom notification
+
+Useful optional controls:
+
+- `apk_state`
+- `apk_reports_root`
+- `preview_limit`
+- `run_web`
+- `route_ids`
+- `web_report_dir`
+- `run_weekly_report`
+- `weekly_report_dir`
+- `publish`
+- `publish_dir`
+- `publish_url`
+- `notify`
+- `notify_dry_run`
+- `wecom_webhook_url`
+
+## Project Config For Reuse
+
+APK source remains Wandoujia-based by design, but other runtime settings are now meant to be project-configurable.
+
+Use [apk-competitor-monitor/examples/config.example.json](/Users/dong/Documents/Cursor/竞品分析工具/apk-competitor-monitor-skill/apk-competitor-monitor/examples/config.example.json) as the starting point. The intended reusable fields are:
+
+- `project_id`
+- `app.name`
+- `app.package`
+- `source.app_url`
+- `apk.state_file`
+- `apk.report_root`
+- `apk.report_dir`
+- `apk.preview_limit`
+- `web.enabled`
+- `web.route_ids`
+- `web.report_dir`
+- `weekly.enabled`
+- `weekly.report_dir`
+- `publish.enabled`
+- `publish.dir`
+- `publish.url`
+- `notify.enabled`
+- `notify.dry_run`
+- `notify.wecom_webhook_url`
+
+When `run_full_weekly_pipeline` receives both direct arguments and `project_config`, direct arguments win.
+
 ## Output
 
 Typical output includes:
@@ -75,6 +266,7 @@ Typical output includes:
 ## Important Notes
 
 - Static UI reconstruction is not a runtime screenshot.
+- The bundled MCP server is intentionally lightweight: it wraps the existing local scripts and returns JSON/text results over stdio instead of re-implementing the whole reporting pipeline in the server itself.
 - Runtime screenshots require a separate device/emulator capture flow with `adb`, uiautomator2, Appium, or an equivalent tool.
 - Do not commit APK files, generated reports, state files, or competitor artifacts to this repository.
 - Make sure your use of third-party APKs and reverse engineering complies with applicable law and the terms that apply to the APK source.

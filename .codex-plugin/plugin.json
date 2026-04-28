@@ -1,0 +1,45 @@
+{
+  "name": "apk-competitor-monitor",
+  "version": "0.2.0",
+  "description": "Monitor Android competitor APKs, compare versions, reconstruct static UI changes, and generate PM-facing reports.",
+  "author": {
+    "name": "Dong",
+    "url": "https://github.com/maidongdong"
+  },
+  "homepage": "https://github.com/maidongdong/apk-competitor-monitor-skill",
+  "repository": "https://github.com/maidongdong/apk-competitor-monitor-skill",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": [
+    "apk",
+    "android",
+    "reverse-engineering",
+    "competitor-analysis",
+    "pm-report",
+    "mcp",
+    "skill"
+  ],
+  "skills": "./apk-competitor-monitor/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "APK Competitor Monitor",
+    "shortDescription": "Analyze competitor APK changes and PM-facing UI diffs",
+    "longDescription": "Monitor Android competitor apps from APK sources, compare releases, reconstruct static UI changes, and generate PM-facing reports through either a Codex skill workflow or MCP tools.",
+    "developerName": "Dong",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/maidongdong/apk-competitor-monitor-skill",
+    "privacyPolicyURL": "https://github.com/maidongdong/apk-competitor-monitor-skill",
+    "termsOfServiceURL": "https://github.com/maidongdong/apk-competitor-monitor-skill",
+    "defaultPrompt": [
+      "Monitor a Wandoujia app and generate a PM-facing APK change report",
+      "Compare two APK files and summarize feature, UI, and SDK changes",
+      "Run deep static UI reconstruction for an APK version diff"
+    ],
+    "brandColor": "#1F6FEB",
+    "screenshots": []
+  }
+}

@@ -1,16 +1,41 @@
 {
-  "app_name": "Example Android App",
+  "project_id": "example-competitor",
+  "app": {
+    "name": "Example Android App",
+    "package": "com.example.app"
+  },
   "source": {
     "type": "wandoujia",
     "app_url": "https://www.wandoujia.com/apps/APP_ID"
   },
-  "workspace": ".",
-  "state_file": "artifacts/apk-monitor/state.json",
-  "report_root": "reports",
+  "apk": {
+    "state_file": "artifacts/apk-monitor/state.json",
+    "report_root": "reports",
+    "report_dir": null,
+    "preview_limit": 50
+  },
+  "web": {
+    "enabled": true,
+    "route_ids": [],
+    "report_dir": null
+  },
+  "weekly": {
+    "enabled": true,
+    "report_dir": null
+  },
+  "publish": {
+    "enabled": true,
+    "dir": "publish",
+    "url": "https://example.github.io/competitor-weekly-reports/"
+  },
+  "notify": {
+    "enabled": true,
+    "dry_run": false,
+    "wecom_webhook_url": ""
+  },
   "analysis": {
     "enable_deep_ui_diff": true,
     "enable_static_ui_previews": true,
-    "max_static_ui_previews": 50,
     "export_pdf": false,
     "export_archive": true
   }
