@@ -20,6 +20,8 @@ This project is source-available for non-commercial use under the PolyForm Nonco
 - Generates a local Web report and lightweight searchable archive.
 - Optionally exports PDF when a local Chrome/Playwright engine is available.
 
+For the product requirements and roadmap, see [`docs/product-requirements.md`](./docs/product-requirements.md).
+
 ## Install As A Skill In Codex
 
 Ask Codex to install this skill from GitHub:
