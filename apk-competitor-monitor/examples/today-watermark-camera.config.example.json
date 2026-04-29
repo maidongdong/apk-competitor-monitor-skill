@@ -1,12 +1,12 @@
 {
-  "project_id": "example-competitor",
+  "project_id": "jinri-watermark-camera",
   "app": {
-    "name": "Example Android App",
-    "package": "com.example.app"
+    "name": "今日水印相机",
+    "package": "com.xhey.xcamera"
   },
   "source": {
     "type": "wandoujia",
-    "app_url": "https://www.wandoujia.com/apps/APP_ID"
+    "app_url": "https://www.wandoujia.com/apps/7912851"
   },
   "apk": {
     "state_file": "artifacts/apk-monitor/state.json",
@@ -15,7 +15,7 @@
     "preview_limit": 50
   },
   "web": {
-    "enabled": true,
+    "enabled": false,
     "route_ids": [],
     "report_dir": null
   },
@@ -24,13 +24,13 @@
     "report_dir": null
   },
   "publish": {
-    "enabled": true,
+    "enabled": false,
     "dir": "publish",
-    "url": "https://example.github.io/competitor-weekly-reports/"
+    "url": ""
   },
   "notify": {
-    "enabled": true,
-    "dry_run": false,
+    "enabled": false,
+    "dry_run": true,
     "wecom_webhook_url": ""
   },
   "analysis": {
@@ -43,6 +43,6 @@
     "lock_report_template": true,
     "record_run_metadata": true,
     "require_project_config": true,
-    "notes": "Use this file as the shared contract. Different agents should keep source.app_url, app.package, apk.state_file, preview_limit, route_ids, and publish/notify settings identical when comparing outputs."
+    "notes": "Baseline example for comparing 今日水印相机 results across agents. Enable web/publish/notify only after replacing route_ids, publish.url, and wecom_webhook_url for your own workspace."
   }
 }

@@ -53,6 +53,7 @@ Use this skill when the user wants to monitor an Android competitor app, compare
 8. Generate the Web report.
    - Copy `assets/web-report-template/` into the report directory.
    - Write `report-data.json` and `static-ui-data.json`.
+   - When the workflow is run through the MCP full pipeline, also write `run-metadata.json` and embed it as `reportData.runMetadata` so different agents can compare config/template fingerprints.
    - If deep UI data exists, also write `ui-layout-data.json`, `ui-preview-data.json`, and `static-ui-previews/*.svg`.
    - Preview cards should show change kind, old/new side-by-side static previews when available, inferred states, RecyclerView item hints, associated Activity/Fragment/Dialog classes, and the underlying evidence.
    - The report should include a PM insight page, feature changes, page-level layout diff, static UI reconstruction, decompilation coverage, SDK/native changes, and raw evidence counts.
@@ -88,6 +89,7 @@ Use this skill when the user wants to monitor an Android competitor app, compare
 - Do not claim a UI is visible to users unless runtime capture confirms it.
 - Keep an unexplained-change pool. Do not imply the APK has been fully mined when signals remain unclassified or require runtime validation.
 - Treat obfuscated class names as weak evidence. Prefer semantic aliases such as `VerifyCodeErrorDialogCandidate` only when backed by layout/string/API/resource evidence, and label them as inferred candidates rather than original names.
+- For reproducible shared usage, prefer a checked project config over ad-hoc prompt arguments. Call the MCP `validate_project_config` tool first, and compare `runMetadata.projectConfigFingerprint` plus `runMetadata.reportTemplate.combinedSha256` when two agents produce different reports.
 
 ## Useful Commands
 

@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
 from pathlib import Path
 
 
@@ -10,6 +11,7 @@ WORKSPACE = Path(__file__).resolve().parent
 SKILL_DIR = WORKSPACE / "apk-competitor-monitor"
 SCRIPTS_DIR = SKILL_DIR / "scripts"
 PROTOCOL_VERSION = "2024-11-05"
+TOOL_VERSION = "0.4.0"
 
 
 def send(message):
@@ -68,6 +70,22 @@ def read_json_file(path):
     return json.loads(Path(path).read_text("utf-8"))
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256_text(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def canonical_json(data):
+    return json.dumps(data or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def nested_get(data, path, default=None):
     current = data
     for key in path:
@@ -115,6 +133,82 @@ def load_project_config(workspace_root, arguments):
     return read_json_file(path)
 
 
+def project_config_path(workspace_root, arguments):
+    config_path = arguments.get("project_config")
+    if not config_path:
+        return None
+    path = Path(config_path).expanduser()
+    if not path.is_absolute():
+        path = workspace_root / path
+    return path
+
+
+def template_fingerprint(template_dir):
+    files = {}
+    root = Path(template_dir)
+    for name in ["index.html", "app.js", "styles.css"]:
+        path = root / name
+        files[name] = sha256_file(path) if path.exists() else None
+    return {
+        "dir": str(root),
+        "files": files,
+        "combinedSha256": sha256_text(canonical_json(files)),
+    }
+
+
+def build_run_metadata(workspace_root, arguments, project_config, template_dir=None):
+    config_path = project_config_path(workspace_root, arguments)
+    direct_overrides = {
+        key: value
+        for key, value in arguments.items()
+        if key not in {"workspace_root", "project_config"} and value is not None
+    }
+    metadata = {
+        "tool": "apk-competitor-monitor",
+        "toolVersion": TOOL_VERSION,
+        "protocolVersion": PROTOCOL_VERSION,
+        "workspaceRoot": str(workspace_root),
+        "projectConfigPath": str(config_path) if config_path else None,
+        "projectConfigSha256": sha256_file(config_path) if config_path and config_path.exists() else None,
+        "projectConfigFingerprint": sha256_text(canonical_json(project_config)),
+        "directOverrideKeys": sorted(direct_overrides.keys()),
+        "directOverrideFingerprint": sha256_text(canonical_json(direct_overrides)),
+        "reproducibility": nested_get(project_config, ["reproducibility"], {}),
+    }
+    if template_dir:
+        metadata["reportTemplate"] = template_fingerprint(template_dir)
+    return metadata
+
+
+def validate_project_config_data(project_config):
+    issues = []
+    warnings = []
+    app_url = nested_get(project_config, ["source", "app_url"])
+    source_type = nested_get(project_config, ["source", "type"])
+    if source_type and source_type != "wandoujia":
+        issues.append("source.type must be 'wandoujia'; other APK sources are intentionally unsupported.")
+    if not app_url:
+        issues.append("source.app_url is required.")
+    elif "wandoujia.com/apps/" not in app_url:
+        issues.append("source.app_url should be a Wandoujia app page URL.")
+    if not nested_get(project_config, ["app", "name"]):
+        warnings.append("app.name is missing; reports may use a generic title.")
+    if not nested_get(project_config, ["app", "package"]):
+        warnings.append("app.package is missing; source filtering will be less stable.")
+    if nested_get(project_config, ["web", "enabled"], False) and not nested_get(project_config, ["web", "route_ids"]):
+        warnings.append("web.enabled is true but web.route_ids is empty; all configured workspace routes may run.")
+    notify_enabled = nested_get(project_config, ["notify", "enabled"], False)
+    notify_dry_run = nested_get(project_config, ["notify", "dry_run"], False)
+    if notify_enabled and not notify_dry_run and not nested_get(project_config, ["notify", "wecom_webhook_url"]):
+        warnings.append("notify.enabled is true but notify.wecom_webhook_url is empty; runtime env must provide WECOM_WEBHOOK_URL.")
+    reproducibility = nested_get(project_config, ["reproducibility"], {})
+    if not reproducibility.get("lock_report_template"):
+        warnings.append("reproducibility.lock_report_template is not enabled; HTML may drift across project versions.")
+    if not reproducibility.get("record_run_metadata"):
+        warnings.append("reproducibility.record_run_metadata is not enabled; reports will be harder to compare across agents.")
+    return {"valid": not issues, "issues": issues, "warnings": warnings}
+
+
 def run_node_script(workspace_root, script_relative_path, args=None, env=None, use_cert_wrapper=False):
     args = args or []
     script_path = workspace_root / script_relative_path
@@ -153,6 +247,7 @@ def handle_tool_call(name, arguments):
         overview = {
             "name": "apk-competitor-monitor",
             "mode": "plugin+mcp",
+            "toolVersion": TOOL_VERSION,
             "requirements": {
                 "required": ["Python 3.9+"],
                 "recommended": ["OpenJDK", "apktool", "jadx"],
@@ -160,6 +255,7 @@ def handle_tool_call(name, arguments):
             },
             "entrypoints": [
                 "monitor_wandoujia",
+                "validate_project_config",
                 "check_re_dependencies",
                 "decompile_with_engines",
                 "analyze_apk_diff",
@@ -191,6 +287,13 @@ def handle_tool_call(name, arguments):
             ],
         }
         return make_text_result(json.dumps(overview, ensure_ascii=False, indent=2))
+
+    if name == "validate_project_config":
+        workspace_root = resolve_workspace_root(arguments)
+        project_config = load_project_config(workspace_root, arguments)
+        validation = validate_project_config_data(project_config)
+        validation["metadata"] = build_run_metadata(workspace_root, arguments, project_config)
+        return make_text_result(json.dumps(validation, ensure_ascii=False, indent=2))
 
     if name == "check_re_dependencies":
         result = run_script("check_re_dependencies.py", [])
@@ -519,6 +622,9 @@ def handle_tool_call(name, arguments):
     if name == "run_full_weekly_pipeline":
         workspace_root = resolve_workspace_root(arguments)
         project_config = load_project_config(workspace_root, arguments)
+        config_validation = validate_project_config_data(project_config) if project_config else {"valid": True, "issues": [], "warnings": ["project_config not provided; reproducibility depends on direct tool arguments."]}
+        if not config_validation["valid"]:
+            raise ValueError("Invalid project_config: " + "; ".join(config_validation["issues"]))
         app_url = first_value(arguments.get("app_url"), nested_get(project_config, ["source", "app_url"]))
         if not app_url:
             raise KeyError("app_url is required, either directly or via project_config.source.app_url")
@@ -540,7 +646,11 @@ def handle_tool_call(name, arguments):
             after_state.get("last_report_dir"),
             before_state.get("last_report_dir"),
         )
-        apk_pipeline = {"check": apk_check_json, "report_dir": apk_report_dir}
+        apk_pipeline = {
+            "check": apk_check_json,
+            "report_dir": apk_report_dir,
+            "reused_previous_report": apk_status != "new_version_analyzed" and bool(apk_report_dir),
+        }
 
         if apk_status == "new_version_analyzed":
             old_code = str(apk_check_json.get("old"))
@@ -559,6 +669,9 @@ def handle_tool_call(name, arguments):
             feature_flow_path = report_root / "feature-flow.json"
             preview_dir = report_root / "static-ui-previews"
             template_dir = SKILL_DIR / "assets" / "web-report-template"
+            run_metadata = build_run_metadata(workspace_root, arguments, project_config, template_dir)
+            run_metadata_path = report_root / "run-metadata.json"
+            run_metadata_path.write_text(json.dumps(run_metadata, ensure_ascii=False, indent=2), "utf-8")
             latest_meta = after_state.get("latest", {})
             previous_meta = after_state.get("previous", before_state.get("latest", {}))
             app_name = nested_get(project_config, ["app", "name"], latest_meta.get("title", "Competitor App"))
@@ -660,6 +773,8 @@ def handle_tool_call(name, arguments):
                 latest_meta.get("update_time", ""),
                 "--template-dir",
                 str(template_dir),
+                "--run-metadata",
+                str(run_metadata_path),
             ]
             if api_surface_path.exists():
                 report_args.extend(["--api-surface", str(api_surface_path)])
@@ -754,6 +869,8 @@ def handle_tool_call(name, arguments):
                 "app_name": nested_get(project_config, ["app", "name"]),
                 "app_url": app_url,
             },
+            "config_validation": config_validation,
+            "run_metadata": build_run_metadata(workspace_root, arguments, project_config),
             "apk": apk_pipeline,
             "web": web_pipeline,
             "weekly": weekly_pipeline,
@@ -772,6 +889,19 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "validate_project_config",
+        "description": "Validate a reusable project_config and return reproducibility fingerprints that help different agents run the same monitor consistently.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["workspace_root", "project_config"],
+            "properties": {
+                "workspace_root": {"type": "string"},
+                "project_config": {"type": "string"}
+            },
             "additionalProperties": False,
         },
     },
@@ -1161,6 +1291,12 @@ RESOURCES = [
         "mimeType": "application/json",
     },
     {
+        "uri": "file://apk-competitor-monitor/examples/today-watermark-camera.config.example.json",
+        "name": "今日水印相机 Config Example",
+        "description": "Reproducible baseline project configuration for monitoring 今日水印相机 from Wandoujia.",
+        "mimeType": "application/json",
+    },
+    {
         "uri": "file://apk-competitor-monitor/examples/web-monitor.config.example.json",
         "name": "Web Monitor Config Example",
         "description": "Example artifacts/web-monitor/config.json for onboarding a new competitor Web/admin target.",
@@ -1170,6 +1306,12 @@ RESOURCES = [
         "uri": "file://docs/web-monitor-onboarding.md",
         "name": "Web Monitor Onboarding Guide",
         "description": "Guide for configuring new competitor Web/admin monitoring routes, baselines, and redaction rules.",
+        "mimeType": "text/markdown",
+    },
+    {
+        "uri": "file://docs/reproducible-runs.md",
+        "name": "Reproducible Runs Guide",
+        "description": "How to keep report inputs, HTML template fingerprints, and run metadata comparable across agents.",
         "mimeType": "text/markdown",
     },
 ]
@@ -1182,10 +1324,14 @@ def read_resource(uri):
         path = SKILL_DIR / "SKILL.md"
     elif uri == "file://apk-competitor-monitor/examples/config.example.json":
         path = SKILL_DIR / "examples" / "config.example.json"
+    elif uri == "file://apk-competitor-monitor/examples/today-watermark-camera.config.example.json":
+        path = SKILL_DIR / "examples" / "today-watermark-camera.config.example.json"
     elif uri == "file://apk-competitor-monitor/examples/web-monitor.config.example.json":
         path = SKILL_DIR / "examples" / "web-monitor.config.example.json"
     elif uri == "file://docs/web-monitor-onboarding.md":
         path = WORKSPACE / "docs" / "web-monitor-onboarding.md"
+    elif uri == "file://docs/reproducible-runs.md":
+        path = WORKSPACE / "docs" / "reproducible-runs.md"
     else:
         raise KeyError(f"Unknown resource: {uri}")
     return {

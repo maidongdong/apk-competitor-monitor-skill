@@ -897,6 +897,23 @@ function renderCoverage(data) {
     "账号态/会员态/团队态/异常态：需要真实账号和操作路径才能确认。",
     ...model.staticDepth,
   ].forEach((item) => blindspots.appendChild(el("code", "", item)));
+
+  const metadataList = document.getElementById("runMetadataList");
+  if (metadataList) {
+    metadataList.innerHTML = "";
+    const metadata = data.runMetadata || {};
+    const template = metadata.reportTemplate || {};
+    const repro = metadata.reproducibility || {};
+    [
+      `工具版本：${metadata.toolVersion || "unknown"}`,
+      `配置指纹：${metadata.projectConfigFingerprint || "missing"}`,
+      `配置文件 SHA256：${metadata.projectConfigSha256 || "missing"}`,
+      `模板指纹：${template.combinedSha256 || "missing"}`,
+      `直接覆盖参数：${(metadata.directOverrideKeys || []).join(", ") || "none"}`,
+      `锁定报告模板：${repro.lock_report_template ? "yes" : "no"}`,
+      `记录运行元数据：${repro.record_run_metadata ? "yes" : "no"}`,
+    ].forEach((item) => metadataList.appendChild(el("code", "", item)));
+  }
 }
 
 function bindTabs() {

@@ -263,6 +263,7 @@ def main():
     parser.add_argument("--api-surface")
     parser.add_argument("--api-surface-diff")
     parser.add_argument("--feature-flow")
+    parser.add_argument("--run-metadata")
     args = parser.parse_args()
 
     diff = load_json(args.diff)
@@ -272,6 +273,7 @@ def main():
     api_surface = load_optional_json(args.api_surface)
     api_diff = load_optional_json(args.api_surface_diff)
     feature_flow = load_optional_json(args.feature_flow)
+    run_metadata = load_optional_json(args.run_metadata) or {}
     old_apk = Path(args.old_apk)
     new_apk = Path(args.new_apk)
     report_dir = Path(args.report_dir)
@@ -320,6 +322,7 @@ def main():
         "oldDate": args.old_date,
         "newDate": args.new_date,
         "generatedAt": datetime.now().strftime("%Y-%m-%d"),
+        "runMetadata": run_metadata,
         "summaryText": summary_text,
         "summary": {
             "features": len(features),
