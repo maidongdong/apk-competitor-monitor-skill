@@ -17,6 +17,8 @@ const labels = {
   features: "功能变化",
   uiChanges: "UI 变化",
   infraChanges: "底层变化",
+  apiSurfaceHitsAdded: "API surface 新增",
+  diffAwareFeatureFlows: "变化调用链",
 };
 
 const evidenceTypes = [
@@ -43,7 +45,13 @@ function toNumber(value) {
 }
 
 function evidenceProfile(feature) {
-  const items = unique([...(feature.evidence || []), ...(feature.ui || []), ...(feature.pages || [])]);
+  const groups = feature.evidenceGroups || {};
+  const groupedItems = [
+    ...(groups.added || []),
+    ...(groups.changed || []),
+    ...(groups.removed || []),
+  ];
+  const items = unique([...(feature.evidence || []), ...groupedItems, ...(feature.ui || []), ...(feature.pages || [])]);
   const counts = {};
   evidenceTypes.forEach(([label, pattern]) => {
     counts[label] = items.filter((item) => pattern.test(String(item))).length;
@@ -198,15 +206,17 @@ function topFeatures(data) {
 }
 
 function renderMetrics(data) {
+  const counts = data.raw?.counts || {};
   const metrics = [
     ["features", data.summary.features],
     ["uiChanges", data.summary.uiChanges],
     ["resourceStringsAdded", data.summary.resourceStringsAdded],
     ["eventsAdded", data.summary.eventsAdded],
     ["apisAdded", data.summary.apisAdded],
+    ["apiSurfaceHitsAdded", counts.api_surface_hits_added || 0],
+    ["diffAwareFeatureFlows", counts.diff_aware_feature_flows || 0],
     ["imagesAdded", data.summary.imagesAdded],
     ["imagesRemoved", data.summary.imagesRemoved],
-    ["infraChanges", data.summary.infraChanges],
   ];
   const grid = document.getElementById("metricGrid");
   grid.innerHTML = "";
@@ -229,6 +239,7 @@ function renderPmInsights(data) {
   const heroItems = [
     ["重点变化", high.length || features.length, "优先查看高影响功能、商业化、账号安全和团队协作变化"],
     ["涉及模块", modules.size, Array.from(modules).slice(0, 5).join(" / ") || "暂无明确模块"],
+    ["API 差异", data.coverage?.apiSurfaceDiff?.hitsAdded || 0, `新增 API/WebView/URL/auth 证据，净变化 ${data.coverage?.apiSurfaceDiff?.netHitDelta || 0}`],
     ["静态 UI 图", state.uiPreviews?.previews?.length || 0, state.uiPreviews?.previews?.length ? "已生成页面级静态还原，可辅助理解结构变化" : "未生成深度 UI 预览"],
   ];
   heroItems.forEach(([title, value, desc]) => {
@@ -263,6 +274,27 @@ function renderPmInsights(data) {
     item.appendChild(el("p", "", suggestedAction(feature)));
     validation.appendChild(item);
   });
+}
+
+function renderEvidenceGroups(feature, container) {
+  const groups = feature.evidenceGroups || {};
+  const rows = [
+    ["added", "新增证据", groups.added || []],
+    ["changed", "变更/关联证据", groups.changed || []],
+    ["removed", "移除证据", groups.removed || []],
+  ].filter(([, , items]) => items.length);
+  container.innerHTML = "";
+  if (!rows.length) return;
+  const wrap = el("div", "evidence-groups");
+  rows.forEach(([kind, title, items]) => {
+    const block = el("div", `evidence-group evidence-group-${kind}`);
+    block.appendChild(el("strong", "", `${title} · ${items.length}`));
+    const chips = el("div", "evidence-group-chips");
+    items.slice(0, 12).forEach((item) => chips.appendChild(el("code", "", item)));
+    block.appendChild(chips);
+    wrap.appendChild(block);
+  });
+  container.appendChild(wrap);
 }
 
 function renderFilters(data) {
@@ -448,6 +480,7 @@ function renderFeatures(data) {
       Object.entries(evidenceProfile(feature).counts)
         .filter(([, count]) => count > 0)
         .forEach(([label, count]) => badges.appendChild(el("span", "evidence-badge", `${label} ${count}`)));
+      renderEvidenceGroups(feature, badges);
       node.querySelector(".confidence-reason").textContent = confidenceReason(feature);
       node.querySelector(".suggested-action").textContent = suggestedAction(feature);
       let previewSlot = node.querySelector(".feature-preview-slot");
@@ -720,6 +753,8 @@ function renderEvidence(data) {
   document.getElementById("rawBox").textContent = JSON.stringify(
     {
       manifest: data.raw.manifest,
+      apiSurfaceDiff: data.raw.apiSurfaceDiff,
+      featureFlow: data.raw.featureFlow?.summary,
       images: data.raw.images,
       urlsAdded: data.raw.urlsAdded,
       urlsRemoved: data.raw.urlsRemoved,
@@ -764,6 +799,8 @@ function coverageModel(data) {
     .filter(([name]) => !String(name).includes("其他"))
     .reduce((sum, [, value]) => sum + toNumber(value), 0);
   const previewCount = state.uiPreviews?.previews?.length || 0;
+  const apiDiff = data.coverage?.apiSurfaceDiff || {};
+  const featureFlow = data.coverage?.featureFlow || {};
   const staticDepth = [
     state.layoutUi ? "apktool layout/resource diff 已生成" : "缺少 apktool layout/resource diff",
     previewCount ? `静态 UI 预览 ${previewCount} 张` : "缺少静态 UI 预览",
@@ -777,6 +814,10 @@ function coverageModel(data) {
     unexplainedLayouts: unexplainedLayoutCount(),
     previewCount,
     productConclusionCount: data.features?.length || 0,
+    apiHitsAdded: toNumber(apiDiff.hitsAdded),
+    apiHitsRemoved: toNumber(apiDiff.hitsRemoved),
+    apiAddedByModule: apiDiff.addedByModule || {},
+    diffAwareFlows: toNumber(featureFlow.diff_aware_flows),
     staticDepth,
     summary,
   };
@@ -789,6 +830,8 @@ function renderCoverage(data) {
   grid.innerHTML = "";
   [
     ["产品结论", model.productConclusionCount, "已归纳为 PM 可读功能变化的结论数"],
+    ["API 差异", `${model.apiHitsAdded}+ / ${model.apiHitsRemoved}-`, "old/new API surface 的 URL、WebView、OkHttp、auth 差异"],
+    ["变化调用链", model.diffAwareFlows, "命中本次 API 或 layout 差异的 Activity/Fragment 候选链路"],
     ["证据链线索", model.featureEvidenceCount, "进入功能卡片的 UI/接口/类名/文案/埋点证据"],
     ["页面级变化", `${model.explainedLayouts}/${model.layoutTotal}`, "已归类产品模块的新增/变更/删除 layout"],
     ["疑似产品未归类", model.unexplainedLayouts, "页面级变化中仍属于“其他 UI”的 layout 数量"],
@@ -806,6 +849,9 @@ function renderCoverage(data) {
 
   const unexplained = document.getElementById("unexplainedList");
   unexplained.innerHTML = "";
+  const apiModuleItems = Object.entries(model.apiAddedByModule)
+    .slice(0, 8)
+    .map(([name, value]) => `API surface 新增模块：${name} ${value} 条`);
   const layoutItems = collectUnexplainedLayouts();
   const rawItems = [
     `口径说明：这里优先展示未归入产品模块的页面级 UI；原始字符串总量不直接代表产品遗漏。`,
@@ -813,7 +859,7 @@ function renderCoverage(data) {
     `新增 API/类线索 ${model.summary.apisAdded || 0} 条：包含产品接口、SDK、混淆类和底层实现，需要二次分类。`,
     `新增埋点/UI key ${model.summary.eventsAdded || 0} 条：适合继续挖疑似预埋/灰度功能。`,
   ];
-  [...layoutItems, ...rawItems].slice(0, 20).forEach((item) => unexplained.appendChild(el("code", "", item)));
+  [...apiModuleItems, ...layoutItems, ...rawItems].slice(0, 24).forEach((item) => unexplained.appendChild(el("code", "", item)));
 
   const obfuscationSummary = document.getElementById("obfuscationSummary");
   obfuscationSummary.innerHTML = "";

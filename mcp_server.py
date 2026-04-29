@@ -84,6 +84,15 @@ def first_value(*values):
     return None
 
 
+def owner_prefix_from_package(package_name):
+    if not package_name:
+        return None
+    parts = [part for part in package_name.split(".") if part]
+    if len(parts) >= 2:
+        return ".".join(parts[:2]) + "."
+    return package_name
+
+
 def resolve_workspace_root(arguments):
     workspace_root = arguments.get("workspace_root")
     if not workspace_root:
@@ -151,7 +160,12 @@ def handle_tool_call(name, arguments):
             },
             "entrypoints": [
                 "monitor_wandoujia",
+                "check_re_dependencies",
+                "decompile_with_engines",
                 "analyze_apk_diff",
+                "extract_api_surface",
+                "diff_api_surface",
+                "trace_feature_flow",
                 "deep_ui_analysis",
                 "product_ui_analysis",
                 "build_deep_ui_web_data",
@@ -166,15 +180,38 @@ def handle_tool_call(name, arguments):
                 "publish_build_site",
                 "publish_deploy_site",
                 "notify_wecom_weekly_report",
+                "run_full_weekly_pipeline",
             ],
             "notes": [
                 "Static UI reconstruction is not a runtime screenshot.",
                 "For APK source monitoring, provide a Wandoujia app page URL and optional state path.",
                 "For one-off diffing, provide old/new APK file paths and version labels.",
+                "For functional change discovery, extract API surface from decompiled sources and trace screen-to-network flows.",
                 "Web/admin and unified weekly tools expect a compatible monitoring workspace_root with artifacts/web-monitor/scripts/*.mjs present.",
             ],
         }
         return make_text_result(json.dumps(overview, ensure_ascii=False, indent=2))
+
+    if name == "check_re_dependencies":
+        result = run_script("check_re_dependencies.py", [])
+        return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if name == "decompile_with_engines":
+        script_args = [
+            arguments["apk"],
+            "--out-dir",
+            arguments["out_dir"],
+            "--engine",
+            arguments.get("engine", "both"),
+        ]
+        if arguments.get("deobf"):
+            script_args.append("--deobf")
+        if arguments.get("include_res"):
+            script_args.append("--include-res")
+        if arguments.get("timeout_seconds") is not None:
+            script_args.extend(["--timeout-seconds", str(arguments["timeout_seconds"])])
+        result = run_script("decompile_with_engines.py", script_args)
+        return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
 
     if name == "monitor_wandoujia":
         app_url = arguments["app_url"]
@@ -194,6 +231,56 @@ def handle_tool_call(name, arguments):
                 arguments["old_apk"],
                 arguments["new_label"],
                 arguments["new_apk"],
+            ],
+        )
+        return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if name == "extract_api_surface":
+        script_args = [
+            arguments["source_dir"],
+            "--output",
+            arguments["output"],
+        ]
+        for prefix in arguments.get("include_prefixes", []) or []:
+            script_args.extend(["--include-prefix", prefix])
+        for prefix in arguments.get("exclude_prefixes", []) or []:
+            script_args.extend(["--exclude-prefix", prefix])
+        result = run_script(
+            "extract_api_surface.py",
+            script_args,
+        )
+        return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if name == "trace_feature_flow":
+        script_args = [
+            arguments["source_dir"],
+            "--api-surface",
+            arguments["api_surface"],
+            "--output",
+            arguments["output"],
+        ]
+        if arguments.get("api_diff"):
+            script_args.extend(["--api-diff", arguments["api_diff"]])
+        if arguments.get("layout_data"):
+            script_args.extend(["--layout-data", arguments["layout_data"]])
+        for prefix in arguments.get("include_prefixes", []) or []:
+            script_args.extend(["--include-prefix", prefix])
+        for prefix in arguments.get("exclude_prefixes", []) or []:
+            script_args.extend(["--exclude-prefix", prefix])
+        result = run_script(
+            "trace_feature_flow.py",
+            script_args,
+        )
+        return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if name == "diff_api_surface":
+        result = run_script(
+            "diff_api_surface.py",
+            [
+                arguments["old_api_surface"],
+                arguments["new_api_surface"],
+                "--output",
+                arguments["output"],
             ],
         )
         return make_text_result(json.dumps(result, ensure_ascii=False, indent=2))
@@ -294,6 +381,11 @@ def handle_tool_call(name, arguments):
             "--template-dir",
             arguments.get("template_dir", str(SKILL_DIR / "assets" / "web-report-template")),
         ]
+        for key, flag in [("api_surface", "--api-surface"), ("feature_flow", "--feature-flow")]:
+            if arguments.get(key):
+                script_args.extend([flag, arguments[key]])
+        if arguments.get("api_surface_diff"):
+            script_args.extend(["--api-surface-diff", arguments["api_surface_diff"]])
         for key, flag in [("app_name", "--app-name"), ("package", "--package"), ("old_date", "--old-date"), ("new_date", "--new-date")]:
             if arguments.get(key):
                 script_args.extend([flag, arguments[key]])
@@ -461,8 +553,14 @@ def handle_tool_call(name, arguments):
             product_path = report_root / "product-ui-analysis.json"
             layout_data_path = report_root / "ui-layout-data.json"
             preview_data_path = report_root / "ui-preview-data.json"
+            api_surface_path = report_root / "api-surface.json"
+            old_api_surface_path = report_root / "api-surface-old.json"
+            api_surface_diff_path = report_root / "api-surface-diff.json"
+            feature_flow_path = report_root / "feature-flow.json"
             preview_dir = report_root / "static-ui-previews"
             template_dir = SKILL_DIR / "assets" / "web-report-template"
+            latest_meta = after_state.get("latest", {})
+            previous_meta = after_state.get("previous", before_state.get("latest", {}))
             app_name = nested_get(project_config, ["app", "name"], latest_meta.get("title", "Competitor App"))
             package_name = nested_get(project_config, ["app", "package"], latest_meta.get("package", ""))
             preview_limit = first_value(arguments.get("preview_limit"), nested_get(project_config, ["apk", "preview_limit"]), 50)
@@ -498,40 +596,80 @@ def handle_tool_call(name, arguments):
                     str(preview_limit),
                 ],
             ).get("json")
-            latest_meta = after_state.get("latest", {})
-            previous_meta = after_state.get("previous", before_state.get("latest", {}))
+            new_sources_dir = workspace_root / "artifacts" / "apk-monitor" / "decompiled" / new_code / "jadx" / "sources"
+            if new_sources_dir.exists():
+                include_prefix_args = []
+                if package_name:
+                    include_prefix_args = ["--include-prefix", owner_prefix_from_package(package_name)]
+                apk_pipeline["api_surface"] = run_script(
+                    "extract_api_surface.py",
+                    [str(new_sources_dir), "--output", str(api_surface_path), *include_prefix_args],
+                ).get("json")
+                old_sources_dir = workspace_root / "artifacts" / "apk-monitor" / "decompiled" / old_code / "jadx" / "sources"
+                if old_sources_dir.exists():
+                    apk_pipeline["old_api_surface"] = run_script(
+                        "extract_api_surface.py",
+                        [str(old_sources_dir), "--output", str(old_api_surface_path), *include_prefix_args],
+                    ).get("json")
+                    apk_pipeline["api_surface_diff"] = run_script(
+                        "diff_api_surface.py",
+                        [str(old_api_surface_path), str(api_surface_path), "--output", str(api_surface_diff_path)],
+                    ).get("json")
+                flow_args = [
+                    str(new_sources_dir),
+                    "--api-surface",
+                    str(api_surface_path),
+                    "--output",
+                    str(feature_flow_path),
+                    "--layout-data",
+                    str(layout_data_path),
+                    *include_prefix_args,
+                ]
+                if api_surface_diff_path.exists():
+                    flow_args.extend(["--api-diff", str(api_surface_diff_path)])
+                apk_pipeline["feature_flow"] = run_script("trace_feature_flow.py", flow_args).get("json")
+            else:
+                apk_pipeline["api_surface"] = {"status": "skipped", "reason": f"missing jadx sources: {new_sources_dir}"}
+                apk_pipeline["feature_flow"] = {"status": "skipped", "reason": "api surface was not generated"}
+            report_args = [
+                "--diff",
+                str(diff_path),
+                "--product",
+                str(product_path),
+                "--layout",
+                str(layout_data_path),
+                "--preview",
+                str(preview_data_path),
+                "--old-apk",
+                str(old_apk),
+                "--new-apk",
+                str(new_apk),
+                "--report-dir",
+                str(report_root),
+                "--old-version",
+                old_code,
+                "--new-version",
+                new_code,
+                "--app-name",
+                app_name,
+                "--package",
+                package_name,
+                "--old-date",
+                previous_meta.get("update_time", ""),
+                "--new-date",
+                latest_meta.get("update_time", ""),
+                "--template-dir",
+                str(template_dir),
+            ]
+            if api_surface_path.exists():
+                report_args.extend(["--api-surface", str(api_surface_path)])
+            if api_surface_diff_path.exists():
+                report_args.extend(["--api-surface-diff", str(api_surface_diff_path)])
+            if feature_flow_path.exists():
+                report_args.extend(["--feature-flow", str(feature_flow_path)])
             apk_pipeline["report_bundle"] = run_script(
                 "generate_apk_report_bundle.py",
-                [
-                    "--diff",
-                    str(diff_path),
-                    "--product",
-                    str(product_path),
-                    "--layout",
-                    str(layout_data_path),
-                    "--preview",
-                    str(preview_data_path),
-                    "--old-apk",
-                    str(old_apk),
-                    "--new-apk",
-                    str(new_apk),
-                    "--report-dir",
-                    str(report_root),
-                    "--old-version",
-                    old_code,
-                    "--new-version",
-                    new_code,
-                    "--app-name",
-                    app_name,
-                    "--package",
-                    package_name,
-                    "--old-date",
-                    previous_meta.get("update_time", ""),
-                    "--new-date",
-                    latest_meta.get("update_time", ""),
-                    "--template-dir",
-                    str(template_dir),
-                ],
+                report_args,
             ).get("json")
             apk_pipeline["archive"] = run_script("export_simple_archive.py", [str(report_root)]).get("json")
             apk_pipeline["pdf"] = run_script("export_report_pdf.py", [str(report_root)]).get("json")
@@ -652,6 +790,32 @@ TOOLS = [
         },
     },
     {
+        "name": "check_re_dependencies",
+        "description": "Check local reverse-engineering dependencies such as apktool, jadx, Java, dex2jar, Vineflower/Fernflower, and PDF engines.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "decompile_with_engines",
+        "description": "Decompile an APK with jadx, Vineflower/Fernflower, or both, and report partial-success coverage for source-level analysis.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["apk", "out_dir"],
+            "properties": {
+                "apk": {"type": "string"},
+                "out_dir": {"type": "string"},
+                "engine": {"type": "string", "enum": ["jadx", "vineflower", "both"]},
+                "deobf": {"type": "boolean"},
+                "include_res": {"type": "boolean"},
+                "timeout_seconds": {"type": "integer"}
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "analyze_apk_diff",
         "description": "Run static APK diff on an old/new APK pair and write the machine-readable diff JSON.",
         "inputSchema": {
@@ -662,6 +826,53 @@ TOOLS = [
                 "old_apk": {"type": "string"},
                 "new_label": {"type": "string"},
                 "new_apk": {"type": "string"}
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "extract_api_surface",
+        "description": "Scan decompiled Java/Kotlin sources for Retrofit, OkHttp, Volley, WebView, auth, URL, and base-URL evidence.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["source_dir", "output"],
+            "properties": {
+                "source_dir": {"type": "string"},
+                "output": {"type": "string"},
+                "include_prefixes": {"type": "array", "items": {"type": "string"}},
+                "exclude_prefixes": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "trace_feature_flow",
+        "description": "Link screen classes, lifecycle/click/navigation signals, and API evidence into feature-flow candidates.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["source_dir", "api_surface", "output"],
+            "properties": {
+                "source_dir": {"type": "string"},
+                "api_surface": {"type": "string"},
+                "output": {"type": "string"},
+                "api_diff": {"type": "string"},
+                "layout_data": {"type": "string"},
+                "include_prefixes": {"type": "array", "items": {"type": "string"}},
+                "exclude_prefixes": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "diff_api_surface",
+        "description": "Compare old/new API surface JSON files and summarize added/removed network, WebView, URL, auth, and base-URL evidence.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["old_api_surface", "new_api_surface", "output"],
+            "properties": {
+                "old_api_surface": {"type": "string"},
+                "new_api_surface": {"type": "string"},
+                "output": {"type": "string"}
             },
             "additionalProperties": False,
         },
@@ -752,7 +963,10 @@ TOOLS = [
                 "package": {"type": "string"},
                 "old_date": {"type": "string"},
                 "new_date": {"type": "string"},
-                "template_dir": {"type": "string"}
+                "template_dir": {"type": "string"},
+                "api_surface": {"type": "string"},
+                "api_surface_diff": {"type": "string"},
+                "feature_flow": {"type": "string"}
             },
             "additionalProperties": False,
         },

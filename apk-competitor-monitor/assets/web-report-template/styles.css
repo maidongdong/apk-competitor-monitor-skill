@@ -131,7 +131,7 @@ main {
 .insight-hero,
 .coverage-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -449,6 +449,61 @@ main {
 .feature-meta-row,
 .evidence-badges {
   margin: 12px 0;
+}
+
+.evidence-groups {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.evidence-group {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 10px;
+}
+
+.evidence-group strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #34465b;
+}
+
+.evidence-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evidence-group-chips code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid #d5e0ea;
+  border-radius: 6px;
+  background: white;
+  color: #526377;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.evidence-group-added {
+  border-color: #bfe4cc;
+  background: #f2fbf5;
+}
+
+.evidence-group-removed {
+  border-color: #f2c2bf;
+  background: #fff5f4;
+}
+
+.evidence-group-changed {
+  border-color: #bdd7f3;
+  background: #f4f9ff;
 }
 
 .confidence-reason,

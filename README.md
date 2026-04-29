@@ -10,6 +10,10 @@ This project is source-available for non-commercial use under the PolyForm Nonco
 
 - Downloads and compares Android APK versions.
 - Extracts static evidence from DEX strings, resources, manifests, URLs, events, APIs, and image assets.
+- Checks local reverse-engineering dependencies and reports actionable setup gaps.
+- Optionally decompiles with jadx plus Vineflower/Fernflower for source-level cross-checks.
+- Extracts Retrofit, OkHttp, Volley, WebView, auth, URL, and base-URL signals from decompiled sources.
+- Links screen classes, click/navigation/lifecycle signals, and API evidence into feature-flow candidates.
 - Runs deep UI analysis with `apktool` and optional `jadx`.
 - Produces page-level layout/resource diffs.
 - Generates static UI reconstruction SVGs, including old/new side-by-side previews for changed layouts.
@@ -39,7 +43,12 @@ The plugin keeps the existing skill workflow and adds MCP tools for the most reu
 
 - `get_skill_overview`
 - `monitor_wandoujia`
+- `check_re_dependencies`
+- `decompile_with_engines`
 - `analyze_apk_diff`
+- `extract_api_surface`
+- `diff_api_surface`
+- `trace_feature_flow`
 - `deep_ui_analysis`
 - `product_ui_analysis`
 - `build_deep_ui_web_data`
@@ -54,6 +63,7 @@ The plugin keeps the existing skill workflow and adds MCP tools for the most reu
 - `publish_build_site`
 - `publish_deploy_site`
 - `notify_wecom_weekly_report`
+- `run_full_weekly_pipeline`
 
 To use it as a local Codex plugin, point your plugin installer at this repository root so Codex can read `.codex-plugin/plugin.json`.
 
@@ -104,11 +114,30 @@ For MCP tool clients, the minimum useful inputs are:
   - `app_url`
   - optional `state`
   - optional `out_root`
+- `check_re_dependencies`
+  - no input
+- `decompile_with_engines`
+  - `apk`
+  - `out_dir`
+  - optional `engine`, `deobf`, `include_res`, `timeout_seconds`
 - `analyze_apk_diff`
   - `old_label`
   - `old_apk`
   - `new_label`
   - `new_apk`
+- `extract_api_surface`
+  - `source_dir`
+  - `output`
+  - optional `include_prefixes`, `exclude_prefixes`
+- `trace_feature_flow`
+  - `source_dir`
+  - `api_surface`
+  - `output`
+  - optional `api_diff`, `layout_data`, `include_prefixes`, `exclude_prefixes`
+- `diff_api_surface`
+  - `old_api_surface`
+  - `new_api_surface`
+  - `output`
 - `deep_ui_analysis`
   - `old_label`
   - `old_apk`
@@ -140,7 +169,7 @@ For MCP tool clients, the minimum useful inputs are:
   - `report_dir`
   - `old_version`
   - `new_version`
-  - optional `app_name`, `package`, `old_date`, `new_date`, `template_dir`
+  - optional `app_name`, `package`, `old_date`, `new_date`, `template_dir`, `api_surface`, `feature_flow`
 - `export_simple_archive`
   - `report_dir`
   - optional `zip_name`
@@ -199,10 +228,11 @@ This orchestration tool performs:
 
 1. APK version check against the workspace state file
 2. APK diff/report generation when a new version exists
-3. Web/admin probe + report
-4. Unified weekly report generation
-5. Static publish deploy
-6. WeCom notification
+3. Source-level API surface extraction and feature-flow tracing when jadx sources are available
+4. Web/admin probe + report
+5. Unified weekly report generation
+6. Static publish deploy
+7. WeCom notification
 
 Useful optional controls:
 

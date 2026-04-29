@@ -85,6 +85,65 @@ def top_feature(layout, product):
     }
 
 
+def build_static_features(layout, product, limit=6):
+    layout_categories = (layout.get("summary") or {}).get("categories") or {}
+    classified = product.get("classified") or {}
+    product_scores = dict(classify_top_modules(product))
+    categories = set(layout_categories) | set(product_scores)
+
+    ranked = []
+    for category in categories:
+        if category == "其他 UI":
+            continue
+        score = layout_categories.get(category, 0) * 4 + min(product_scores.get(category, 0), 80)
+        if score > 0:
+            ranked.append((category, score))
+    ranked.sort(key=lambda item: (-item[1], item[0]))
+
+    features = []
+    layout_items = []
+    for group in ["added", "changed", "removed"]:
+        for item in (layout.get("layouts") or {}).get(group, []):
+            layout_items.append((group, item))
+
+    for category, _ in ranked[:limit]:
+        category_layouts = [item for _, item in layout_items if item.get("category") == category]
+        evidence_groups = {"added": [], "removed": [], "changed": []}
+        for section_data in classified.values():
+            if isinstance(section_data, dict):
+                for item in section_data.get(category, [])[:8]:
+                    evidence_groups["changed"].append(item)
+        for group, item in layout_items:
+            if item.get("category") == category and item.get("name"):
+                target = "added" if group == "added" else "removed" if group == "removed" else "changed"
+                evidence_groups[target].append(item.get("name"))
+        evidence = evidence_groups["added"] + evidence_groups["changed"] + evidence_groups["removed"]
+        classes = []
+        ui = []
+        for item in category_layouts[:8]:
+            ui.append(item.get("name"))
+            classes.extend(item.get("classes", [])[:4])
+        features.append(
+            {
+                "id": f"{category}-static-change".replace("/", "-"),
+                "title": f"{category} 静态变化",
+                "type": "静态分析",
+                "confidence": "中",
+                "impact": f"{category} 相关资源、页面或代码信号存在变化，可能影响入口、编辑能力、提示文案或页面结构。",
+                "pages": [category],
+                "evidence": sample(evidence, 24),
+                "evidenceGroups": {key: sample(value, 16) for key, value in evidence_groups.items()},
+                "summary": [
+                    f"{category} 命中 layout 分类 {layout_categories.get(category, 0)} 项，产品信号 {product_scores.get(category, 0)} 条。",
+                    "该模块变化来自资源、layout、DEX/API/event 等静态信号，需要真机验证用户可见路径。",
+                ],
+                "ui": sample([name for name in ui if name], 12),
+                "classes": sample(sorted(set(classes)), 16),
+            }
+        )
+    return features
+
+
 def build_obfuscation(layout):
     classes = []
     for group in ["added", "changed", "removed"]:
@@ -110,6 +169,81 @@ def build_obfuscation(layout):
     }
 
 
+def load_optional_json(path):
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    return load_json(p)
+
+
+def summarize_api_surface(api_surface):
+    if not api_surface:
+        return {"status": "missing"}
+    summary = api_surface.get("summary", {})
+    return {
+        "status": "ok",
+        "hitCount": api_surface.get("hit_count", 0),
+        "byKind": summary.get("by_kind", {}),
+        "topClasses": sample(summary.get("top_classes", []), 20),
+        "retrofitEndpoints": sample(summary.get("retrofit_endpoints", []), 50),
+    }
+
+
+def summarize_api_diff(api_diff):
+    if not api_diff:
+        return {"status": "missing"}
+    summary = api_diff.get("summary") or {}
+    return {
+        "status": "ok",
+        "hitsAdded": summary.get("hits_added", 0),
+        "hitsRemoved": summary.get("hits_removed", 0),
+        "netHitDelta": summary.get("net_hit_delta", 0),
+        "addedByKind": (summary.get("added") or {}).get("by_kind", {}),
+        "addedByModule": (summary.get("added") or {}).get("by_module", {}),
+        "removedByKind": (summary.get("removed") or {}).get("by_kind", {}),
+        "removedByModule": (summary.get("removed") or {}).get("by_module", {}),
+        "topAdded": sample(api_diff.get("added", []), 40),
+        "topRemoved": sample(api_diff.get("removed", []), 40),
+    }
+
+
+def top_flow_feature(feature_flow):
+    if not feature_flow:
+        return None
+    flows = feature_flow.get("flows") or []
+    if not flows:
+        return None
+    flow = flows[0]
+    screen = flow.get("screen", {})
+    api_hits = flow.get("api_hits", [])
+    evidence = []
+    evidence.extend(screen.get("layouts", []))
+    evidence.extend(screen.get("related_symbols", [])[:10])
+    evidence.extend([f"{hit.get('kind')}: {hit.get('value')}" for hit in flow.get("change_hits", [])[:10]])
+    evidence.extend([f"changed_layout: {name}" for name in flow.get("changed_layouts", [])[:10]])
+    evidence.extend([f"{hit.get('kind')}: {hit.get('value')}" for hit in api_hits[:10]])
+    module = flow.get("module") or "未归类功能"
+    return {
+        "id": f"{module}-feature-flow".replace("/", "-"),
+        "title": f"{module} 调用链变化候选",
+        "type": "源码调用链",
+        "confidence": flow.get("confidence", "中"),
+        "impact": f"{module} 相关页面与网络/API 信号存在静态关联，建议优先做真机路径验证。",
+        "pages": [screen.get("class")] if screen.get("class") else [module],
+        "evidence": sample(evidence, 24),
+        "summary": [
+            f"命中页面/入口：{screen.get('class', 'unknown')}",
+            f"归因原因：{', '.join(flow.get('reasons', [])) or '静态关联'}",
+            f"本次变化命中：API/网络 {len(flow.get('change_hits', []))} 项，layout {len(flow.get('changed_layouts', []))} 项。",
+            "该结论来自反编译源码和 API 线索，仍需运行态验证。",
+        ],
+        "ui": screen.get("layouts", []),
+        "classes": [screen.get("class")] if screen.get("class") else [],
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--diff", required=True)
@@ -126,12 +260,18 @@ def main():
     parser.add_argument("--old-date", default="")
     parser.add_argument("--new-date", default="")
     parser.add_argument("--template-dir", required=True)
+    parser.add_argument("--api-surface")
+    parser.add_argument("--api-surface-diff")
+    parser.add_argument("--feature-flow")
     args = parser.parse_args()
 
     diff = load_json(args.diff)
     product = load_json(args.product)
     layout = load_json(args.layout)
     preview = load_json(args.preview)
+    api_surface = load_optional_json(args.api_surface)
+    api_diff = load_optional_json(args.api_surface_diff)
+    feature_flow = load_optional_json(args.feature_flow)
     old_apk = Path(args.old_apk)
     new_apk = Path(args.new_apk)
     report_dir = Path(args.report_dir)
@@ -157,13 +297,19 @@ def main():
         if item.get("path")
     ]
 
-    feature = top_feature(layout, product)
+    flow_feature = top_flow_feature(feature_flow)
+    static_features = build_static_features(layout, product)
+    if not static_features:
+        static_features = [top_feature(layout, product)]
+    features = ([flow_feature] if flow_feature else []) + static_features
     layout_summary = layout.get("summary", {})
     product_counts = product.get("counts", {})
+    api_summary = summarize_api_surface(api_surface)
+    api_diff_summary = summarize_api_diff(api_diff)
 
     summary_text = (
         f"本次 v{args.old_version} 到 v{args.new_version} 发现静态 APK/UI 变化，"
-        f"重点集中在 {feature['pages'][0]}，需要结合运行态验证确认真实用户可见影响。"
+        f"重点集中在 {features[0]['pages'][0]}，需要结合运行态验证确认真实用户可见影响。"
     )
 
     report = {
@@ -176,7 +322,7 @@ def main():
         "generatedAt": datetime.now().strftime("%Y-%m-%d"),
         "summaryText": summary_text,
         "summary": {
-            "features": 1,
+            "features": len(features),
             "uiChanges": layout_summary.get("layoutsChanged", 0),
             "infraChanges": 1,
             "resourceStringsAdded": product_counts.get("resource_strings_added", 0),
@@ -187,7 +333,7 @@ def main():
             "apkOldSize": mb(diff["old_summary"]["size"]),
             "apkNewSize": mb(diff["new_summary"]["size"]),
         },
-        "features": [feature],
+        "features": features,
         "infra": [
             {
                 "title": "Manifest/SDK/底层差异",
@@ -213,6 +359,20 @@ def main():
                 "jadx_old": layout_summary.get("mappingOldStatus") or "unknown",
                 "jadx_new": layout_summary.get("mappingNewStatus") or "unknown",
             },
+            "apiSurface": {
+                "status": api_summary.get("status"),
+                "hitCount": api_summary.get("hitCount", 0),
+                "byKind": api_summary.get("byKind", {}),
+            },
+            "apiSurfaceDiff": {
+                "status": api_diff_summary.get("status"),
+                "hitsAdded": api_diff_summary.get("hitsAdded", 0),
+                "hitsRemoved": api_diff_summary.get("hitsRemoved", 0),
+                "netHitDelta": api_diff_summary.get("netHitDelta", 0),
+                "addedByModule": api_diff_summary.get("addedByModule", {}),
+                "removedByModule": api_diff_summary.get("removedByModule", {}),
+            },
+            "featureFlow": (feature_flow or {}).get("summary", {"status": "missing"}),
             "layoutCoverage": layout_summary,
             "unexplainedSignals": {
                 "resource_strings_removed": product_counts.get("resource_strings_removed", 0),
@@ -242,8 +402,19 @@ def main():
                 "resource_files_removed": layout_summary.get("resourceFilesRemoved", 0),
                 "resource_files_changed": layout_summary.get("resourceFilesChanged", 0),
                 "static_previews": len(preview.get("previews", [])),
+                "api_surface_hits": api_summary.get("hitCount", 0),
+                "api_surface_hits_added": api_diff_summary.get("hitsAdded", 0),
+                "api_surface_hits_removed": api_diff_summary.get("hitsRemoved", 0),
+                "feature_flows": (feature_flow or {}).get("summary", {}).get("flows", 0),
+                "diff_aware_feature_flows": (feature_flow or {}).get("summary", {}).get("diff_aware_flows", 0),
             },
             "manifest": product.get("manifest", {}),
+            "apiSurface": api_summary,
+            "apiSurfaceDiff": api_diff_summary,
+            "featureFlow": {
+                "summary": (feature_flow or {}).get("summary", {}),
+                "topFlows": sample((feature_flow or {}).get("flows", []), 30),
+            },
             "images": image_info,
             "urlsAdded": sample(product.get("samples", {}).get("urls_added", []), 80),
             "urlsRemoved": sample(product.get("samples", {}).get("urls_removed", []), 80),
@@ -262,15 +433,15 @@ def main():
         },
         "uiPages": [
             {
-                "id": feature["id"],
-                "title": feature["title"],
-                "type": feature["type"],
-                "confidence": feature["confidence"],
-                "pages": feature["pages"],
-                "uiKeys": sample(feature["evidence"], 24),
+                "id": features[0]["id"],
+                "title": features[0]["title"],
+                "type": features[0]["type"],
+                "confidence": features[0]["confidence"],
+                "pages": features[0]["pages"],
+                "uiKeys": sample(features[0]["evidence"], 24),
                 "apiEvidence": sample(product.get("samples", {}).get("apis_added", []), 18),
-                "interpretation": feature["summary"],
-                "assetsHint": feature["ui"],
+                "interpretation": features[0]["summary"],
+                "assetsHint": features[0]["ui"],
             }
         ],
         "assets": {
